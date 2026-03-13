@@ -21,6 +21,8 @@ export interface TokenHolder {
   entityLabel?: string;
   entityDescription?: string;
   isFocus?: boolean;
+  starkDomain?: string | null;
+  cartridgeUsername?: string | null;
   interactionTxCount?: number;
   incomingTxCount?: number;
   outgoingTxCount?: number;
@@ -77,6 +79,8 @@ export interface GraphData {
       alias: string | null;
       entityType: EntityType;
       entityLabel?: string;
+      starkDomain?: string | null;
+      cartridgeUsername?: string | null;
       volume: number;
       txCount: number;
       tokenSymbol?: string | null;

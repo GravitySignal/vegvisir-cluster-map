@@ -39,7 +39,7 @@ function readInitialSettings(): {
     };
     return {
       limit: Math.min(150, Math.max(10, parsed.limit || 80)),
-      depth: Math.min(3, Math.max(1, parsed.depth || 2)),
+      depth: Math.min(5, Math.max(1, parsed.depth || 2)),
       maxTransfersPerAddress: Math.min(
         1000,
         Math.max(50, parsed.maxTransfersPerAddress || 250)
@@ -202,13 +202,15 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
             <label className="text-gray-400 text-sm whitespace-nowrap">Depth:</label>
             <select
               value={depth}
-              onChange={(e) => setDepth(Math.min(3, Math.max(1, Number(e.target.value))))}
+              onChange={(e) => setDepth(Math.min(5, Math.max(1, Number(e.target.value))))}
               className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               disabled={isLoading}
             >
               <option value={1}>1 hop (fast)</option>
               <option value={2}>2 hops (default)</option>
               <option value={3}>3 hops (deep)</option>
+              <option value={4}>4 hops (very deep)</option>
+              <option value={5}>5 hops (forensics)</option>
             </select>
           </div>
           <div className="flex items-center gap-2">

@@ -8,6 +8,7 @@ import {
 } from "@/lib/starknet/voyager";
 import { getCached, setCache } from "@/lib/starknet/cache";
 import { classifyEntity } from "@/lib/starknet/entityClassification";
+import { fetchIdentityInfo } from "@/lib/starknet/identity";
 import { getTokenColor } from "@/lib/utils/tokenColor";
 import { normalizeAddress } from "@/lib/utils/validation";
 import type { EntityType, GraphData, TokenHolder, TransferEdge } from "@/types";
@@ -30,6 +31,17 @@ interface AddressGraphOptions {
 
 const ZERO_ADDRESS =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+function selectDisplayAlias(
+  preferred: string | null,
+  starkDomain?: string | null,
+  cartridgeUsername?: string | null
+): string | null {
+  if (preferred) return preferred;
+  if (starkDomain) return starkDomain;
+  if (cartridgeUsername) return `@${cartridgeUsername}`;
+  return null;
+}
 
 function increment(map: Map<string, number>, key: string, amount: number): void {
   map.set(key, (map.get(key) || 0) + amount);
@@ -79,7 +91,15 @@ export async function buildGraphData(
 
   metadata.totalSupply = totalSupply;
 
+  const identityCandidates = holders
+    .slice(0, 80)
+    .map((holder) => holder.address);
+  const identityMap = await fetchIdentityInfo(identityCandidates);
+
   const nodes = holders.map((holder) => {
+    const identity = identityMap.get(holder.address);
+    const starkDomain = identity?.starkDomain || null;
+    const cartridgeUsername = identity?.cartridgeUsername || null;
     const isZeroAddress = holder.address === ZERO_ADDRESS;
     const classification = isZeroAddress
       ? {
@@ -90,10 +110,14 @@ export async function buildGraphData(
       : classifyEntity({ alias: holder.alias });
     return {
       ...holder,
-      alias: isZeroAddress ? holder.alias || "Zero Address" : holder.alias,
+      alias: isZeroAddress
+        ? holder.alias || "Zero Address"
+        : selectDisplayAlias(holder.alias, starkDomain, cartridgeUsername),
       entityType: classification.type,
       entityLabel: classification.label,
       entityDescription: classification.description,
+      starkDomain,
+      cartridgeUsername,
     };
   });
 
@@ -131,7 +155,7 @@ export async function buildAddressGraphData(
   apiKey?: string
 ): Promise<GraphData> {
   const normalizedAddress = normalizeAddress(address);
-  const depth = Math.min(3, Math.max(1, options?.depth || 2));
+  const depth = Math.min(5, Math.max(1, options?.depth || 2));
   const maxTransfersPerAddress = Math.min(
     1000,
     Math.max(50, options?.maxTransfersPerAddress || 250)
@@ -233,6 +257,7 @@ export async function buildAddressGraphData(
 
   const nodeAddresses = Array.from(includedAddresses);
   const nodeProfiles = await fetchAddressProfiles(nodeAddresses, { apiKey });
+  const identityMap = await fetchIdentityInfo(nodeAddresses);
 
   const tokenAddresses = Array.from(tokenVolumeMap.entries())
     .sort((a, b) => b[1] - a[1])
@@ -274,6 +299,7 @@ export async function buildAddressGraphData(
 
   const rawNodes = nodeAddresses.map((nodeAddress) => {
     const profile = nodeProfiles.get(nodeAddress);
+    const identity = identityMap.get(nodeAddress);
     const stats = statsMap.get(nodeAddress)!;
     const isZeroAddress = nodeAddress === ZERO_ADDRESS;
     const classification = isZeroAddress
@@ -295,7 +321,11 @@ export async function buildAddressGraphData(
       address: nodeAddress,
       alias: isZeroAddress
         ? "Zero Address"
-        : aliasHints.get(nodeAddress) || profile?.alias || null,
+        : selectDisplayAlias(
+            aliasHints.get(nodeAddress) || profile?.alias || null,
+            identity?.starkDomain || null,
+            identity?.cartridgeUsername || null
+          ),
       balance: String(totalVolume),
       balanceFormatted: score,
       percentSupply: 0,
@@ -304,6 +334,8 @@ export async function buildAddressGraphData(
       entityLabel: classification.label,
       entityDescription: classification.description,
       isFocus: nodeAddress === normalizedAddress,
+      starkDomain: identity?.starkDomain || null,
+      cartridgeUsername: identity?.cartridgeUsername || null,
       interactionTxCount: totalTx,
       incomingTxCount: stats.incomingTxCount,
       outgoingTxCount: stats.outgoingTxCount,
@@ -377,9 +409,15 @@ export async function buildAddressGraphData(
     const fundingTokenAddress = dominantKey(source.incomingTokens);
     return {
       address: source.address,
-      alias: source.alias || profile?.alias || null,
+      alias: selectDisplayAlias(
+        source.alias || profile?.alias || null,
+        identityMap.get(source.address)?.starkDomain || null,
+        identityMap.get(source.address)?.cartridgeUsername || null
+      ),
       entityType: classification.type,
       entityLabel: classification.label,
+      starkDomain: identityMap.get(source.address)?.starkDomain || null,
+      cartridgeUsername: identityMap.get(source.address)?.cartridgeUsername || null,
       volume: source.incomingVolume,
       txCount: source.incomingTxCount,
       tokenSymbol: fundingTokenAddress

@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   }
 
   const limit = Math.min(150, Math.max(10, parseInt(limitParam || "100", 10) || 100));
-  const depth = Math.min(3, Math.max(1, parseInt(depthParam || "2", 10) || 2));
+  const depth = Math.min(5, Math.max(1, parseInt(depthParam || "2", 10) || 2));
   const maxTransfersPerAddress = Math.min(
     1000,
     Math.max(50, parseInt(maxTransfersParam || "250", 10) || 250)

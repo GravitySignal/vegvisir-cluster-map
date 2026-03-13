@@ -105,6 +105,23 @@ export default function DetailPanel({
           </div>
         </div>
 
+        {(selectedNode.starkDomain || selectedNode.cartridgeUsername) && (
+          <div className="grid grid-cols-1 gap-2 text-xs">
+            {selectedNode.starkDomain && (
+              <div className="bg-gray-700/40 rounded px-2 py-1.5">
+                <span className="text-gray-400">.stark:</span>{" "}
+                <span className="text-cyan-200">{selectedNode.starkDomain}</span>
+              </div>
+            )}
+            {selectedNode.cartridgeUsername && (
+              <div className="bg-gray-700/40 rounded px-2 py-1.5">
+                <span className="text-gray-400">Cartridge:</span>{" "}
+                <span className="text-cyan-200">@{selectedNode.cartridgeUsername}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {mode === "token" ? (
           <div>
             <p className="text-gray-400 text-xs mb-1">Balance</p>
@@ -161,6 +178,11 @@ export default function DetailPanel({
                     </span>
                     <span className="text-cyan-300">{source.entityLabel || source.entityType}</span>
                   </div>
+                  {(source.starkDomain || source.cartridgeUsername) && (
+                    <div className="text-[11px] text-cyan-200/90 mb-0.5">
+                      {source.starkDomain || (source.cartridgeUsername ? `@${source.cartridgeUsername}` : "")}
+                    </div>
+                  )}
                   <div className="text-[11px] text-gray-400">
                     {source.txCount} tx • {formatBalance(source.volume, 0)}
                     {source.tokenSymbol ? ` ${source.tokenSymbol}` : ""}

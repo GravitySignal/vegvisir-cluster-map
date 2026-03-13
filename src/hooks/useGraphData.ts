@@ -131,7 +131,7 @@ export function useGraphData() {
       options?: Partial<GraphFetchOptions>,
       signal?: AbortSignal
     ): Promise<GraphData> => {
-      const depth = Math.min(3, Math.max(1, options?.depth || 2));
+      const depth = Math.min(5, Math.max(1, options?.depth || 2));
       const maxTransfers = Math.min(
         1000,
         Math.max(50, options?.maxTransfersPerAddress || 250)
