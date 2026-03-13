@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { truncateAddress, formatBalance, formatPercent } from "@/lib/utils/format";
+import { formatAddressLabel, formatBalance, formatPercent, isZeroAddress } from "@/lib/utils/format";
 import type { GraphData, GraphMode, SimulationNode, TransferEdge, TokenHolder } from "@/types";
 
 interface DetailPanelProps {
@@ -41,7 +41,7 @@ export default function DetailPanel({
         relation: e.relation || "interaction",
         peerAddress: peerAddr,
         peerAlias: peer?.alias || null,
-        peerEntityLabel: peer?.entityLabel || "Unknown",
+        peerEntityLabel: isZeroAddress(peerAddr) ? "System" : (peer?.entityLabel || "Unknown"),
         volume: e.volume,
         txCount: e.txCount,
         tokenSymbol: e.tokenSymbol || null,
@@ -174,7 +174,7 @@ export default function DetailPanel({
                 >
                   <div className="flex items-center justify-between text-xs mb-1">
                     <span className="text-gray-200 truncate pr-2">
-                      {source.alias || truncateAddress(source.address)}
+                      {source.alias || formatAddressLabel(source.address)}
                     </span>
                     <span className="text-cyan-300">{source.entityLabel || source.entityType}</span>
                   </div>
@@ -210,7 +210,7 @@ export default function DetailPanel({
                         {c.direction === "sent" ? "→" : "←"}
                       </span>
                       <span className="text-gray-300 truncate">
-                        {c.peerAlias || truncateAddress(c.peerAddress)}
+                        {c.peerAlias || formatAddressLabel(c.peerAddress)}
                       </span>
                     </div>
                     <span className="text-gray-400 shrink-0 ml-2">

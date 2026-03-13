@@ -29,6 +29,7 @@ interface AddressGraphOptions {
   maxTransfersPerAddress: number;
 }
 
+const GRAPH_CACHE_VERSION = "v2";
 const ZERO_ADDRESS =
   "0x0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -78,7 +79,7 @@ export async function buildGraphData(
   apiKey?: string
 ): Promise<GraphData> {
   const normalizedContract = normalizeAddress(contractAddress);
-  const cacheKey = `token:${normalizedContract}:${limit}`;
+  const cacheKey = `${GRAPH_CACHE_VERSION}:token:${normalizedContract}:${limit}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
 
@@ -162,7 +163,7 @@ export async function buildAddressGraphData(
   );
   const maxPagesPerAddress = Math.max(1, Math.ceil(maxTransfersPerAddress / 50));
 
-  const cacheKey = `address:${normalizedAddress}:${limit}:d${depth}:m${maxTransfersPerAddress}`;
+  const cacheKey = `${GRAPH_CACHE_VERSION}:address:${normalizedAddress}:${limit}:d${depth}:m${maxTransfersPerAddress}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
 

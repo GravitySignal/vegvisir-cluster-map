@@ -11,7 +11,7 @@ import {
 } from "@/lib/graph/simulation";
 import { entityColor } from "@/lib/starknet/entityClassification";
 import { getTokenColor } from "@/lib/utils/tokenColor";
-import { truncateAddress } from "@/lib/utils/format";
+import { formatAddressLabel, isZeroAddress } from "@/lib/utils/format";
 import type { GraphData, SimulationNode, SimulationLink } from "@/types";
 
 interface BubbleMapProps {
@@ -105,7 +105,10 @@ function BubbleMapInner({
       .join("circle")
       .attr("r", (d: SimulationNode) => d.radius)
       .attr("fill", (d: SimulationNode) => entityColor(d.entityType || "unknown"))
-      .attr("stroke", (d: SimulationNode) => (d.isFocus ? "white" : "transparent"))
+      .attr("stroke", (d: SimulationNode) => {
+        if (isZeroAddress(d.address)) return "#f59e0b";
+        return d.isFocus ? "white" : "transparent";
+      })
       .attr("stroke-width", 2)
       .attr("stroke-dasharray", (d: SimulationNode) => {
         if (!expandedAddresses || graphData.mode !== "address") return null;
@@ -123,7 +126,7 @@ function BubbleMapInner({
       .data(nodes.filter((n) => n.rank <= 10))
       .join("text")
       .text((d: SimulationNode) =>
-        d.alias || truncateAddress(d.address)
+        d.alias || formatAddressLabel(d.address)
       )
       .attr("text-anchor", "middle")
       .attr("fill", "white")
@@ -153,7 +156,7 @@ function BubbleMapInner({
         onNodeHoverRef.current?.(d, event);
       })
       .on("mouseleave", function (_event: MouseEvent, d: SimulationNode) {
-        select(this).attr("stroke", d.isFocus ? "white" : "transparent");
+        select(this).attr("stroke", isZeroAddress(d.address) ? "#f59e0b" : (d.isFocus ? "white" : "transparent"));
         linkSelection.attr("stroke-opacity", 1);
         onNodeHoverRef.current?.(null);
       });

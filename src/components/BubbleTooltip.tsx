@@ -1,6 +1,6 @@
 "use client";
 
-import { truncateAddress, formatBalance, formatPercent } from "@/lib/utils/format";
+import { formatAddressLabel, formatBalance, formatPercent, isZeroAddress } from "@/lib/utils/format";
 import type { GraphMode, SimulationNode } from "@/types";
 
 interface BubbleTooltipProps {
@@ -12,6 +12,7 @@ interface BubbleTooltipProps {
 
 export default function BubbleTooltip({ node, position, tokenSymbol, mode }: BubbleTooltipProps) {
   if (!node || !position) return null;
+  const zeroAddress = isZeroAddress(node.address);
 
   return (
     <div
@@ -21,11 +22,13 @@ export default function BubbleTooltip({ node, position, tokenSymbol, mode }: Bub
       {node.alias && (
         <p className="font-bold text-amber-400 mb-0.5">{node.alias}</p>
       )}
-      {node.entityLabel && (
-        <p className="text-[11px] uppercase tracking-wide text-cyan-300 mb-0.5">{node.entityLabel}</p>
+      {(node.entityLabel || zeroAddress) && (
+        <p className="text-[11px] uppercase tracking-wide text-cyan-300 mb-0.5">
+          {zeroAddress ? "System" : node.entityLabel}
+        </p>
       )}
       <p className="text-gray-300 font-mono text-xs mb-1.5">
-        {truncateAddress(node.address, 8)}
+        {formatAddressLabel(node.address, 8)}
       </p>
       <div className="space-y-0.5 text-xs">
         {mode === "address" ? (
