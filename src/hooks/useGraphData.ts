@@ -8,13 +8,13 @@ export function useGraphData() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchGraph = useCallback(async (token: string, limit: number) => {
+  const fetchGraph = useCallback(async (target: string, limit: number, mode: "token" | "address") => {
     setIsLoading(true);
     setError(null);
     setGraphData(null);
     try {
       const res = await fetch(
-        `/api/graph?token=${encodeURIComponent(token)}&limit=${limit}`
+        `/api/graph?target=${encodeURIComponent(target)}&limit=${limit}&mode=${mode}`
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch graph data");

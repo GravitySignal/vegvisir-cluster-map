@@ -1,3 +1,15 @@
+export type GraphMode = "token" | "address";
+
+export type EntityType =
+  | "individual"
+  | "app"
+  | "service"
+  | "bridge"
+  | "staking"
+  | "token"
+  | "contract"
+  | "unknown";
+
 export interface TokenHolder {
   address: string;
   balance: string;          // Raw balance string from API
@@ -5,6 +17,15 @@ export interface TokenHolder {
   percentSupply: number;    // Percentage of total supply (0-100)
   rank: number;
   alias: string | null;     // contractAlias from Voyager
+  entityType?: EntityType;
+  entityLabel?: string;
+  entityDescription?: string;
+  isFocus?: boolean;
+  interactionTxCount?: number;
+  incomingTxCount?: number;
+  outgoingTxCount?: number;
+  incomingVolume?: number;
+  outgoingVolume?: number;
 }
 
 export interface TransferEdge {
@@ -12,6 +33,9 @@ export interface TransferEdge {
   to: string;
   volume: number;
   txCount: number;
+  relation?: "interaction" | "funding";
+  tokenAddress?: string;
+  tokenSymbol?: string | null;
 }
 
 export interface TokenMetadata {
@@ -23,6 +47,8 @@ export interface TokenMetadata {
 }
 
 export interface GraphData {
+  mode: GraphMode;
+  focusAddress: string;
   token: TokenMetadata;
   nodes: TokenHolder[];
   edges: TransferEdge[];
@@ -30,6 +56,21 @@ export interface GraphData {
     holdersCount: number;
     edgesCount: number;
     fetchedAt: string;
+    entityCounts?: Partial<Record<EntityType, number>>;
+    note?: string;
+  };
+  funding?: {
+    totalIncomingTxCount: number;
+    totalIncomingVolume: number;
+    sources: Array<{
+      address: string;
+      alias: string | null;
+      entityType: EntityType;
+      entityLabel?: string;
+      volume: number;
+      txCount: number;
+      tokenSymbol?: string | null;
+    }>;
   };
 }
 
@@ -48,4 +89,6 @@ export interface SimulationLink {
   target: SimulationNode | string;
   volume: number;
   thickness: number;
+  relation?: "interaction" | "funding";
+  tokenSymbol?: string | null;
 }

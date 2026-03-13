@@ -9,29 +9,31 @@ const ETH_ADDRESS =
   "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
 
 describe("TokenInput", () => {
-  it("renders address input with placeholder", () => {
+  it("renders address mode by default", () => {
     render(<TokenInput onSubmit={vi.fn()} isLoading={false} />);
     expect(
-      screen.getByPlaceholderText("Enter token contract address (0x...)")
+      screen.getByPlaceholderText("Enter Starknet address (wallet/app/contract)")
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Address graph" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Token holder map" })).toBeInTheDocument();
   });
 
-  it("renders max holders input with default value 100", () => {
+  it("renders max connections input with default value 80", () => {
     render(<TokenInput onSubmit={vi.fn()} isLoading={false} />);
     const input = screen.getByRole("spinbutton");
-    expect(input).toHaveValue(100);
+    expect(input).toHaveValue(80);
   });
 
-  it("renders max holders input with min=10 and max=150", () => {
+  it("renders max input with min=10 and max=150", () => {
     render(<TokenInput onSubmit={vi.fn()} isLoading={false} />);
     const input = screen.getByRole("spinbutton");
     expect(input).toHaveAttribute("min", "10");
     expect(input).toHaveAttribute("max", "150");
   });
 
-  it("renders Load Map button", () => {
+  it("renders Analyze button", () => {
     render(<TokenInput onSubmit={vi.fn()} isLoading={false} />);
-    expect(screen.getByRole("button", { name: "Load Map" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analyze" })).toBeInTheDocument();
   });
 
   it("disables submit button when isLoading is true", () => {
@@ -39,28 +41,25 @@ describe("TokenInput", () => {
     expect(screen.getByRole("button", { name: "Loading..." })).toBeDisabled();
   });
 
-  it("shows Loading... text when isLoading is true", () => {
-    render(<TokenInput onSubmit={vi.fn()} isLoading={true} />);
-    expect(screen.getByText("Loading...")).toBeInTheDocument();
+  it("hides quick-select buttons in address mode", () => {
+    render(<TokenInput onSubmit={vi.fn()} isLoading={false} />);
+    expect(screen.queryByText(/Quick select:/)).not.toBeInTheDocument();
   });
 
-  it("renders quick-select buttons for STRK and ETH", () => {
+  it("shows quick-select buttons in token mode", async () => {
+    const user = userEvent.setup();
     render(<TokenInput onSubmit={vi.fn()} isLoading={false} />);
+    await user.click(screen.getByRole("button", { name: "Token holder map" }));
+    expect(screen.getByText(/Quick select:/)).toBeInTheDocument();
     expect(screen.getByText(/STRK/)).toBeInTheDocument();
     expect(screen.getByText(/ETH/)).toBeInTheDocument();
-  });
-
-  it("shows truncated addresses on quick-select buttons", () => {
-    render(<TokenInput onSubmit={vi.fn()} isLoading={false} />);
-    // truncateAddress with default chars=4 → "0x0471...938d"
-    expect(screen.getByText(/0x0471…938d|0x0471\.\.\.938d/)).toBeInTheDocument();
   });
 
   it("shows validation error for empty address on submit", async () => {
     const onSubmit = vi.fn();
     render(<TokenInput onSubmit={onSubmit} isLoading={false} />);
-    fireEvent.click(screen.getByRole("button", { name: "Load Map" }));
-    expect(screen.getByText(/enter a token/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Analyze" }));
+    expect(screen.getByText(/please enter a starknet address/i)).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -69,53 +68,54 @@ describe("TokenInput", () => {
     const onSubmit = vi.fn();
     render(<TokenInput onSubmit={onSubmit} isLoading={false} />);
     await user.type(
-      screen.getByPlaceholderText("Enter token contract address (0x...)"),
+      screen.getByPlaceholderText("Enter Starknet address (wallet/app/contract)"),
       "not-an-address"
     );
-    await user.click(screen.getByRole("button", { name: "Load Map" }));
+    await user.click(screen.getByRole("button", { name: "Analyze" }));
     expect(screen.getByText(/invalid starknet address/i)).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("calls onSubmit with valid address and limit", async () => {
+  it("calls onSubmit with valid address in address mode", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     render(<TokenInput onSubmit={onSubmit} isLoading={false} />);
     await user.type(
-      screen.getByPlaceholderText("Enter token contract address (0x...)"),
+      screen.getByPlaceholderText("Enter Starknet address (wallet/app/contract)"),
       STRK_ADDRESS
     );
-    await user.click(screen.getByRole("button", { name: "Load Map" }));
-    expect(onSubmit).toHaveBeenCalledWith(STRK_ADDRESS, 100);
+    await user.click(screen.getByRole("button", { name: "Analyze" }));
+    expect(onSubmit).toHaveBeenCalledWith(STRK_ADDRESS, 80, "address");
   });
 
-  it("clears error when user types in address input", async () => {
+  it("calls onSubmit with token mode after switching tabs", async () => {
     const user = userEvent.setup();
-    render(<TokenInput onSubmit={vi.fn()} isLoading={false} />);
-    // Trigger error first
-    await user.click(screen.getByRole("button", { name: "Load Map" }));
-    expect(screen.getByText(/enter a token/i)).toBeInTheDocument();
-    // Now type — error should clear
+    const onSubmit = vi.fn();
+    render(<TokenInput onSubmit={onSubmit} isLoading={false} />);
+    await user.click(screen.getByRole("button", { name: "Token holder map" }));
     await user.type(
-      screen.getByPlaceholderText("Enter token contract address (0x...)"),
-      "0"
+      screen.getByPlaceholderText("Enter token contract address (ERC-20)"),
+      STRK_ADDRESS
     );
-    expect(screen.queryByText(/enter a token/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Analyze" }));
+    expect(onSubmit).toHaveBeenCalledWith(STRK_ADDRESS, 80, "token");
   });
 
-  it("quick-select STRK fills address and calls onSubmit", async () => {
+  it("quick-select STRK triggers token mode submit", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     render(<TokenInput onSubmit={onSubmit} isLoading={false} />);
+    await user.click(screen.getByRole("button", { name: "Token holder map" }));
     await user.click(screen.getByText(/STRK/));
-    expect(onSubmit).toHaveBeenCalledWith(STRK_ADDRESS, 100);
+    expect(onSubmit).toHaveBeenCalledWith(STRK_ADDRESS, 80, "token");
   });
 
-  it("quick-select ETH fills address and calls onSubmit", async () => {
+  it("quick-select ETH triggers token mode submit", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     render(<TokenInput onSubmit={onSubmit} isLoading={false} />);
+    await user.click(screen.getByRole("button", { name: "Token holder map" }));
     await user.click(screen.getByText(/ETH/));
-    expect(onSubmit).toHaveBeenCalledWith(ETH_ADDRESS, 100);
+    expect(onSubmit).toHaveBeenCalledWith(ETH_ADDRESS, 80, "token");
   });
 });

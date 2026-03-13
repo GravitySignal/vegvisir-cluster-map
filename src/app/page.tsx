@@ -9,7 +9,9 @@ import LoadingState from "@/components/LoadingState";
 import ErrorBanner from "@/components/ErrorBanner";
 import { useGraphData } from "@/hooks/useGraphData";
 import { useTooltip } from "@/hooks/useTooltip";
-import type { SimulationNode } from "@/types";
+import { entityColor } from "@/lib/starknet/entityClassification";
+import { truncateAddress } from "@/lib/utils/format";
+import type { EntityType, SimulationNode } from "@/types";
 
 export default function Home() {
   const { graphData, isLoading, error, setError, fetchGraph } = useGraphData();
@@ -44,22 +46,60 @@ export default function Home() {
 
       {/* Stats bar */}
       {graphData && (
-        <div className="border-b border-gray-800 px-4 py-2 text-gray-400 text-xs">
-          <span>{graphData.metadata.holdersCount} holders</span>
-          <span className="mx-2">&middot;</span>
-          <span>{graphData.metadata.edgesCount} connections</span>
-          <span className="mx-2">&middot;</span>
-          <span>
-            {graphData.token.name} ({graphData.token.symbol})
-          </span>
-          <span className="mx-2">&middot;</span>
-          <span>
-            fetched at{" "}
-            {new Date(graphData.metadata.fetchedAt).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </span>
+        <div className="border-b border-gray-800 px-4 py-2 text-gray-400 text-xs space-y-2">
+          <div>
+            <span>
+              {graphData.mode === "address"
+                ? `${graphData.metadata.holdersCount - 1} connected addresses`
+                : `${graphData.metadata.holdersCount} holders`}
+            </span>
+            <span className="mx-2">&middot;</span>
+            <span>{graphData.metadata.edgesCount} connections</span>
+            <span className="mx-2">&middot;</span>
+            {graphData.mode === "address" ? (
+              <span>focus: {truncateAddress(graphData.focusAddress, 6)}</span>
+            ) : (
+              <span>
+                {graphData.token.name} ({graphData.token.symbol})
+              </span>
+            )}
+            {graphData.mode === "address" && graphData.funding?.sources[0] && (
+              <>
+                <span className="mx-2">&middot;</span>
+                <span>
+                  top funder:{" "}
+                  {graphData.funding.sources[0].alias ||
+                    truncateAddress(graphData.funding.sources[0].address)}
+                </span>
+              </>
+            )}
+            <span className="mx-2">&middot;</span>
+            <span>
+              fetched at{" "}
+              {new Date(graphData.metadata.fetchedAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          </div>
+          {graphData.metadata.entityCounts && (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(graphData.metadata.entityCounts).map(([type, count]) => (
+                <span
+                  key={type}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-gray-700"
+                >
+                    <span
+                      className="inline-block w-2 h-2 rounded-full"
+                      style={{ backgroundColor: entityColor(type as EntityType) }}
+                    />
+                  <span className="text-gray-300 capitalize">
+                    {type}: {count}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -72,7 +112,7 @@ export default function Home() {
 
         {!isLoading && !graphData && !error && (
           <p className="text-gray-500 text-lg">
-            Enter a token address to generate the bubble map
+            Enter a Starknet address to map connected addresses and funding sources
           </p>
         )}
 
@@ -90,6 +130,7 @@ export default function Home() {
         node={tooltipNode}
         position={tooltipPos}
         tokenSymbol={graphData?.token.symbol ?? ""}
+        mode={graphData?.mode ?? "token"}
       />
 
       {/* Detail panel */}
@@ -98,6 +139,8 @@ export default function Home() {
         tokenSymbol={graphData?.token.symbol ?? ""}
         edges={graphData?.edges ?? []}
         nodes={graphData?.nodes ?? []}
+        mode={graphData?.mode ?? "token"}
+        funding={graphData?.funding}
         onClose={handleClosePanel}
       />
     </div>

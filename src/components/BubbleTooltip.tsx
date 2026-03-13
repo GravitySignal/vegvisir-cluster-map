@@ -1,15 +1,16 @@
 "use client";
 
 import { truncateAddress, formatBalance, formatPercent } from "@/lib/utils/format";
-import type { SimulationNode } from "@/types";
+import type { GraphMode, SimulationNode } from "@/types";
 
 interface BubbleTooltipProps {
   node: SimulationNode | null;
   position: { x: number; y: number } | null;
   tokenSymbol: string;
+  mode: GraphMode;
 }
 
-export default function BubbleTooltip({ node, position, tokenSymbol }: BubbleTooltipProps) {
+export default function BubbleTooltip({ node, position, tokenSymbol, mode }: BubbleTooltipProps) {
   if (!node || !position) return null;
 
   return (
@@ -20,16 +21,26 @@ export default function BubbleTooltip({ node, position, tokenSymbol }: BubbleToo
       {node.alias && (
         <p className="font-bold text-amber-400 mb-0.5">{node.alias}</p>
       )}
+      {node.entityLabel && (
+        <p className="text-[11px] uppercase tracking-wide text-cyan-300 mb-0.5">{node.entityLabel}</p>
+      )}
       <p className="text-gray-300 font-mono text-xs mb-1.5">
         {truncateAddress(node.address, 8)}
       </p>
       <div className="space-y-0.5 text-xs">
+        {mode === "address" ? (
+          <p>
+            <span className="text-gray-400">Interactions:</span>{" "}
+            <span className="font-medium">{node.interactionTxCount ?? 0} tx</span>
+          </p>
+        ) : (
+          <p>
+            <span className="text-gray-400">Balance:</span>{" "}
+            <span className="font-medium">{formatBalance(node.balanceFormatted)} {tokenSymbol}</span>
+          </p>
+        )}
         <p>
-          <span className="text-gray-400">Balance:</span>{" "}
-          <span className="font-medium">{formatBalance(node.balanceFormatted)} {tokenSymbol}</span>
-        </p>
-        <p>
-          <span className="text-gray-400">Supply:</span>{" "}
+          <span className="text-gray-400">{mode === "address" ? "Graph share:" : "Supply:"}</span>{" "}
           <span className="font-medium">{formatPercent(node.percentSupply)}</span>
         </p>
         <p>

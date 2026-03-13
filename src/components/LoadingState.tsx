@@ -25,7 +25,7 @@ export default function LoadingState({ isLoading }: LoadingStateProps) {
             strokeLinecap="round"
           />
         </svg>
-        <p className="text-gray-400 text-sm">Fetching token data...</p>
+        <p className="text-gray-400 text-sm">Analyzing Starknet graph...</p>
       </div>
     </div>
   );

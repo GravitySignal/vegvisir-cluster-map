@@ -35,12 +35,35 @@ interface VoyagerTransfersResponse {
 }
 
 interface VoyagerContractResponse {
-  tokenName: string;
-  tokenSymbol: string;
-  type: string;
-  address: string;
-  isErcToken: boolean;
+  tokenName?: string;
+  tokenSymbol?: string;
+  type?: string;
+  address?: string;
+  isErcToken?: boolean;
+  contractAlias?: string | null;
+  alias?: string | null;
+  name?: string | null;
   decimals?: string;
+}
+
+export interface AddressTransfer {
+  from: string;
+  to: string;
+  volume: number;
+  txHash: string;
+  timestamp: number;
+  tokenAddress: string;
+  fromAlias: string | null;
+  toAlias: string | null;
+}
+
+export interface AddressProfile {
+  address: string;
+  alias: string | null;
+  name: string | null;
+  tokenSymbol: string | null;
+  contractType: string | null;
+  isErcToken: boolean;
 }
 
 async function voyagerFetch<T>(path: string, params?: Record<string, string>, retried = false): Promise<T> {
@@ -98,11 +121,99 @@ export async function fetchTokenMetadata(contractAddress: string): Promise<Token
 
   return {
     address: contractAddress,
-    name: data.tokenName || "Unknown Token",
+    name: data.tokenName || data.name || "Unknown Token",
     symbol: data.tokenSymbol || "???",
     decimals: data.decimals ? parseInt(data.decimals, 10) : 18,
     totalSupply: 0,
   };
+}
+
+function parseTransferValue(value: string): number {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function fetchAddressProfile(address: string): Promise<AddressProfile> {
+  try {
+    const data = await voyagerFetch<VoyagerContractResponse>(`/contracts/${address}`);
+    return {
+      address: normalizeAddress(data.address || address),
+      alias: data.contractAlias || data.alias || null,
+      name: data.tokenName || data.name || null,
+      tokenSymbol: data.tokenSymbol || null,
+      contractType: data.type || null,
+      isErcToken: Boolean(data.isErcToken),
+    };
+  } catch {
+    return {
+      address: normalizeAddress(address),
+      alias: null,
+      name: null,
+      tokenSymbol: null,
+      contractType: null,
+      isErcToken: false,
+    };
+  }
+}
+
+export async function fetchAddressProfiles(addresses: string[]): Promise<Map<string, AddressProfile>> {
+  const map = new Map<string, AddressProfile>();
+  const unique = Array.from(new Set(addresses.map((addr) => normalizeAddress(addr))));
+  const BATCH_SIZE = 8;
+
+  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+    const batch = unique.slice(i, i + BATCH_SIZE);
+    const profiles = await Promise.all(batch.map((addr) => fetchAddressProfile(addr)));
+    for (const profile of profiles) {
+      map.set(profile.address, profile);
+    }
+  }
+
+  return map;
+}
+
+export async function fetchAddressTransfers(
+  address: string,
+  maxPages: number = 8
+): Promise<AddressTransfer[]> {
+  const normalizedAddress = normalizeAddress(address);
+  const transfers: AddressTransfer[] = [];
+
+  for (let page = 1; page <= maxPages; page++) {
+    const data = await voyagerFetch<VoyagerTransfersResponse>(
+      `/contracts/${normalizedAddress}/transfers`,
+      { ps: "50", p: String(page) }
+    );
+
+    if (data.items.length === 0) break;
+
+    for (const item of data.items) {
+      const from = normalizeAddress(item.transferFrom);
+      const to = normalizeAddress(item.transferTo);
+
+      if (from !== normalizedAddress && to !== normalizedAddress) {
+        continue;
+      }
+
+      const volume = parseTransferValue(item.transferValue);
+      if (volume <= 0) continue;
+
+      transfers.push({
+        from,
+        to,
+        volume,
+        txHash: item.txHash,
+        timestamp: item.timestamp,
+        tokenAddress: normalizeAddress(item.tokenAddress),
+        fromAlias: item.fromAlias || null,
+        toAlias: item.toAlias || null,
+      });
+    }
+
+    if (data.items.length < 50 || (data.lastPage !== null && page >= data.lastPage)) break;
+  }
+
+  return transfers;
 }
 
 export async function fetchHolders(
@@ -178,13 +289,8 @@ export async function fetchTransfers(
     if (!holderAddresses.has(from) || !holderAddresses.has(to)) return;
     if (from === to) return;
 
-    let volume = 0;
-    try {
-      volume = parseFloat(item.transferValue);
-    } catch {
-      return;
-    }
-    if (isNaN(volume) || volume <= 0) return;
+    const volume = parseTransferValue(item.transferValue);
+    if (volume <= 0) return;
 
     const key = `${from}:${to}`;
     const existing = edgeMap.get(key);

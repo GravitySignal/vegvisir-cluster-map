@@ -4,12 +4,12 @@ import { useRef, useEffect, memo } from "react";
 import { select } from "d3-selection";
 import { zoom, zoomIdentity } from "d3-zoom";
 import { drag as d3Drag } from "d3-drag";
-import { scaleLinear } from "d3-scale";
 import {
   prepareNodes,
   prepareLinks,
   createSimulation,
 } from "@/lib/graph/simulation";
+import { entityColor } from "@/lib/starknet/entityClassification";
 import { truncateAddress } from "@/lib/utils/format";
 import type { GraphData, SimulationNode, SimulationLink } from "@/types";
 
@@ -50,12 +50,6 @@ function BubbleMapInner({
     const nodes = prepareNodes(graphData.nodes);
     const links = prepareLinks(graphData.edges, nodes);
 
-    // Color scale based on percentSupply
-    const maxPct = Math.max(...nodes.map((n) => n.percentSupply), 1);
-    const colorScale = scaleLinear<string>()
-      .domain([0, maxPct])
-      .range(["#3b82f6", "#8b5cf6"]);
-
     // Create SVG
     const svg = select(container)
       .append("svg")
@@ -84,7 +78,9 @@ function BubbleMapInner({
       .selectAll("line")
       .data(links)
       .join("line")
-      .attr("stroke", "rgba(59, 130, 246, 0.3)")
+      .attr("stroke", (d: SimulationLink) =>
+        d.relation === "funding" ? "rgba(34, 197, 94, 0.45)" : "rgba(59, 130, 246, 0.3)"
+      )
       .attr("stroke-width", (d: SimulationLink) => d.thickness)
       .attr("stroke-linecap", "round");
 
@@ -96,11 +92,10 @@ function BubbleMapInner({
       .data(nodes)
       .join("circle")
       .attr("r", (d: SimulationNode) => d.radius)
-      .attr("fill", (d: SimulationNode) =>
-        d.alias ? "#f59e0b" : colorScale(d.percentSupply)
-      )
-      .attr("stroke", "transparent")
+      .attr("fill", (d: SimulationNode) => entityColor(d.entityType || "unknown"))
+      .attr("stroke", (d: SimulationNode) => (d.isFocus ? "white" : "transparent"))
       .attr("stroke-width", 2)
+      .attr("opacity", (d: SimulationNode) => (d.entityType === "individual" ? 1 : 0.88))
       .style("cursor", "pointer");
 
     // Labels for top 10
@@ -140,8 +135,8 @@ function BubbleMapInner({
       .on("mousemove", function (event: MouseEvent, d: SimulationNode) {
         onNodeHoverRef.current?.(d, event);
       })
-      .on("mouseleave", function () {
-        select(this).attr("stroke", "transparent");
+      .on("mouseleave", function (_event: MouseEvent, d: SimulationNode) {
+        select(this).attr("stroke", d.isFocus ? "white" : "transparent");
         linkSelection.attr("stroke-opacity", 1);
         onNodeHoverRef.current?.(null);
       });

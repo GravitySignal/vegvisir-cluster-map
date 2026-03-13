@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidStarknetAddress } from "@/lib/utils/validation";
-import { buildGraphData } from "@/lib/graph/buildGraph";
+import { buildAddressGraphData, buildGraphData } from "@/lib/graph/buildGraph";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
-  const token = searchParams.get("token");
+  const modeParam = searchParams.get("mode");
+  const mode = modeParam === "address" ? "address" : "token";
+  const target = searchParams.get("target") || searchParams.get("token");
   const limitParam = searchParams.get("limit");
 
-  if (!token) {
-    return NextResponse.json({ error: "Missing 'token' query parameter" }, { status: 400 });
+  if (!target) {
+    return NextResponse.json({ error: "Missing address/contract input." }, { status: 400 });
   }
 
-  if (!isValidStarknetAddress(token)) {
+  if (!isValidStarknetAddress(target)) {
     return NextResponse.json(
       { error: "Invalid Starknet address (expected 0x followed by 1-64 hex characters)" },
       { status: 400 }
@@ -21,7 +23,10 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(150, Math.max(10, parseInt(limitParam || "100", 10) || 100));
 
   try {
-    const graphData = await buildGraphData(token, limit);
+    const graphData =
+      mode === "address"
+        ? await buildAddressGraphData(target, limit)
+        : await buildGraphData(target, limit);
     return NextResponse.json(graphData, {
       headers: { "Cache-Control": "public, max-age=300" },
     });
