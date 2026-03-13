@@ -59,15 +59,16 @@ function countEntityTypes(nodes: TokenHolder[]): Partial<Record<EntityType, numb
 
 export async function buildGraphData(
   contractAddress: string,
-  limit: number
+  limit: number,
+  apiKey?: string
 ): Promise<GraphData> {
   const normalizedContract = normalizeAddress(contractAddress);
   const cacheKey = `token:${normalizedContract}:${limit}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
 
-  const metadata = await fetchTokenMetadata(normalizedContract);
-  const { holders, totalSupply } = await fetchHolders(normalizedContract, limit);
+  const metadata = await fetchTokenMetadata(normalizedContract, { apiKey });
+  const { holders, totalSupply } = await fetchHolders(normalizedContract, limit, { apiKey });
 
   if (holders.length === 0) {
     throw new Error("No holders found for this token");
@@ -86,7 +87,13 @@ export async function buildGraphData(
   });
 
   const holderAddresses = new Set(nodes.map((h) => h.address));
-  const edges = await fetchTransfers(normalizedContract, holderAddresses, metadata.decimals);
+  const edges = await fetchTransfers(
+    normalizedContract,
+    holderAddresses,
+    metadata.decimals,
+    5,
+    { apiKey }
+  );
 
   const graphData: GraphData = {
     mode: "token",
@@ -109,7 +116,8 @@ export async function buildGraphData(
 export async function buildAddressGraphData(
   address: string,
   limit: number,
-  options?: Partial<AddressGraphOptions>
+  options?: Partial<AddressGraphOptions>,
+  apiKey?: string
 ): Promise<GraphData> {
   const normalizedAddress = normalizeAddress(address);
   const depth = Math.min(3, Math.max(1, options?.depth || 2));
@@ -137,7 +145,8 @@ export async function buildAddressGraphData(
     const transfers = await fetchAddressTransfers(
       current.address,
       maxPagesPerAddress,
-      maxTransfersPerAddress
+      maxTransfersPerAddress,
+      { apiKey }
     );
 
     const candidatePeers = new Map<string, number>();
@@ -212,13 +221,16 @@ export async function buildAddressGraphData(
   }
 
   const nodeAddresses = Array.from(includedAddresses);
-  const nodeProfiles = await fetchAddressProfiles(nodeAddresses);
+  const nodeProfiles = await fetchAddressProfiles(nodeAddresses, { apiKey });
 
   const tokenAddresses = Array.from(tokenVolumeMap.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 120)
     .map(([address]) => address);
-  const tokenProfiles = tokenAddresses.length > 0 ? await fetchAddressProfiles(tokenAddresses) : new Map();
+  const tokenProfiles =
+    tokenAddresses.length > 0
+      ? await fetchAddressProfiles(tokenAddresses, { apiKey })
+      : new Map();
 
   type NodeStats = {
     incomingVolume: number;

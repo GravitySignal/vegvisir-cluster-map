@@ -23,6 +23,7 @@ export default function Home() {
     mode: "token" | "address";
     depth: number;
     maxTransfersPerAddress: number;
+    voyagerApiKey?: string;
     action: "explore" | "expand";
   }>({
     mode: "address",
@@ -34,6 +35,7 @@ export default function Home() {
     limit: number;
     depth: number;
     maxTransfersPerAddress: number;
+    voyagerApiKey?: string;
   }>({
     limit: 80,
     depth: 2,
@@ -47,17 +49,19 @@ export default function Home() {
       address: string,
       limit: number,
       mode: "token" | "address",
-      options?: { depth: number; maxTransfersPerAddress: number }
+      options?: { depth: number; maxTransfersPerAddress: number; voyagerApiKey?: string }
     ) => {
       const depth = options?.depth || 2;
       const maxTransfersPerAddress = options?.maxTransfersPerAddress || 250;
+      const voyagerApiKey = options?.voyagerApiKey?.trim() || undefined;
       setRequestContext({
         mode,
         depth,
         maxTransfersPerAddress,
+        voyagerApiKey,
         action: "explore",
       });
-      setExploreOptions({ limit, depth, maxTransfersPerAddress });
+      setExploreOptions({ limit, depth, maxTransfersPerAddress, voyagerApiKey });
       const normalized = normalizeAddress(address);
       setExpandedAddresses(new Set([normalized]));
       fetchGraph(address, limit, mode, options);
@@ -76,6 +80,7 @@ export default function Home() {
       setRequestContext((ctx) => ({ ...ctx, mode: "address", action: "expand" }));
       await expandGraphFromNode(node.address, exploreOptions.limit, {
         maxTransfersPerAddress: exploreOptions.maxTransfersPerAddress,
+        voyagerApiKey: exploreOptions.voyagerApiKey,
       });
       setExpandedAddresses((prev) => {
         const next = new Set(prev);

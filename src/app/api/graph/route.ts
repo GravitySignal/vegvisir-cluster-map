@@ -4,6 +4,7 @@ import { buildAddressGraphData, buildGraphData } from "@/lib/graph/buildGraph";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
+  const requestApiKey = request.headers.get("x-voyager-api-key")?.trim() || undefined;
   const modeParam = searchParams.get("mode");
   const mode = modeParam === "address" ? "address" : "token";
   const target = searchParams.get("target") || searchParams.get("token");
@@ -35,8 +36,8 @@ export async function GET(request: NextRequest) {
         ? await buildAddressGraphData(target, limit, {
             depth,
             maxTransfersPerAddress,
-          })
-        : await buildGraphData(target, limit);
+          }, requestApiKey)
+        : await buildGraphData(target, limit, requestApiKey);
     return NextResponse.json(graphData, {
       headers: { "Cache-Control": "public, max-age=300" },
     });

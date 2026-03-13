@@ -16,24 +16,26 @@ function readInitialSettings(): {
   limit: number;
   depth: number;
   maxTransfersPerAddress: number;
+  voyagerApiKey: string;
 } {
   if (typeof window === "undefined") {
-    return { limit: 80, depth: 2, maxTransfersPerAddress: 250 };
+    return { limit: 80, depth: 2, maxTransfersPerAddress: 250, voyagerApiKey: "" };
   }
 
   try {
     const storage = window.localStorage as Partial<Storage> | undefined;
     if (!storage || typeof storage.getItem !== "function") {
-      return { limit: 80, depth: 2, maxTransfersPerAddress: 250 };
+      return { limit: 80, depth: 2, maxTransfersPerAddress: 250, voyagerApiKey: "" };
     }
     const raw = storage.getItem(SETTINGS_KEY);
     if (!raw) {
-      return { limit: 80, depth: 2, maxTransfersPerAddress: 250 };
+      return { limit: 80, depth: 2, maxTransfersPerAddress: 250, voyagerApiKey: "" };
     }
     const parsed = JSON.parse(raw) as {
       limit?: number;
       depth?: number;
       maxTransfersPerAddress?: number;
+      voyagerApiKey?: string;
     };
     return {
       limit: Math.min(150, Math.max(10, parsed.limit || 80)),
@@ -42,9 +44,10 @@ function readInitialSettings(): {
         1000,
         Math.max(50, parsed.maxTransfersPerAddress || 250)
       ),
+      voyagerApiKey: (parsed.voyagerApiKey || "").trim(),
     };
   } catch {
-    return { limit: 80, depth: 2, maxTransfersPerAddress: 250 };
+    return { limit: 80, depth: 2, maxTransfersPerAddress: 250, voyagerApiKey: "" };
   }
 }
 
@@ -53,7 +56,7 @@ interface TokenInputProps {
     address: string,
     limit: number,
     mode: GraphMode,
-    options?: { depth: number; maxTransfersPerAddress: number }
+    options?: { depth: number; maxTransfersPerAddress: number; voyagerApiKey?: string }
   ) => void;
   isLoading: boolean;
 }
@@ -67,6 +70,7 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
   const [maxTransfersPerAddress, setMaxTransfersPerAddress] = useState(
     initialSettings.maxTransfersPerAddress
   );
+  const [voyagerApiKey, setVoyagerApiKey] = useState(initialSettings.voyagerApiKey);
   const [error, setError] = useState<string | null>(null);
 
   const isAddressMode = mode === "address";
@@ -74,8 +78,11 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
   useEffect(() => {
     const storage = window.localStorage as Partial<Storage> | undefined;
     if (!storage || typeof storage.setItem !== "function") return;
-    storage.setItem(SETTINGS_KEY, JSON.stringify({ limit, depth, maxTransfersPerAddress }));
-  }, [limit, depth, maxTransfersPerAddress]);
+    storage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ limit, depth, maxTransfersPerAddress, voyagerApiKey })
+    );
+  }, [limit, depth, maxTransfersPerAddress, voyagerApiKey]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -93,9 +100,14 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
       return;
     }
     setError(null);
-    onSubmit(trimmed, limit, mode, {
+    const key = voyagerApiKey.trim();
+    const submitOptions = {
       depth,
       maxTransfersPerAddress,
+      ...(key ? { voyagerApiKey: key } : {}),
+    };
+    onSubmit(trimmed, limit, mode, {
+      ...submitOptions,
     });
   }
 
@@ -103,9 +115,14 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
     setMode("token");
     setAddress(addr);
     setError(null);
-    onSubmit(addr, limit, "token", {
+    const key = voyagerApiKey.trim();
+    const submitOptions = {
       depth,
       maxTransfersPerAddress,
+      ...(key ? { voyagerApiKey: key } : {}),
+    };
+    onSubmit(addr, limit, "token", {
+      ...submitOptions,
     });
   }
 
@@ -210,6 +227,18 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
           </div>
         </div>
       )}
+
+      <div className="flex items-center gap-2">
+        <label className="text-gray-400 text-sm whitespace-nowrap">Voyager API key:</label>
+        <input
+          type="password"
+          value={voyagerApiKey}
+          onChange={(e) => setVoyagerApiKey(e.target.value)}
+          placeholder="Paste Voyager key (stored locally)"
+          className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          disabled={isLoading}
+        />
+      </div>
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 

@@ -4,6 +4,10 @@ import type { TokenHolder, TransferEdge, TokenMetadata } from "@/types";
 const API_URL = process.env.VOYAGER_API_URL || "https://api.voyager.online/beta";
 const API_KEY = process.env.VOYAGER_API_KEY || "";
 
+interface VoyagerClientOptions {
+  apiKey?: string;
+}
+
 interface VoyagerHolderItem {
   holder: string;
   balance: string;
@@ -66,7 +70,16 @@ export interface AddressProfile {
   isErcToken: boolean;
 }
 
-async function voyagerFetch<T>(path: string, params?: Record<string, string>, retried = false): Promise<T> {
+function resolveApiKey(options?: VoyagerClientOptions): string {
+  return (options?.apiKey || API_KEY || "").trim();
+}
+
+async function voyagerFetch<T>(
+  path: string,
+  params?: Record<string, string>,
+  retried = false,
+  options?: VoyagerClientOptions
+): Promise<T> {
   const base = API_URL.replace(/\/+$/, "");
   const url = new URL(`${base}${path}`);
   if (params) {
@@ -75,13 +88,19 @@ async function voyagerFetch<T>(path: string, params?: Record<string, string>, re
     }
   }
 
+  const effectiveApiKey = resolveApiKey(options);
+  const headers: Record<string, string> = {};
+  if (effectiveApiKey) {
+    headers["x-api-key"] = effectiveApiKey;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
 
   let res: Response;
   try {
     res = await fetch(url.toString(), {
-      headers: { "x-api-key": API_KEY },
+      headers,
       signal: controller.signal,
     });
   } catch (err) {
@@ -97,11 +116,18 @@ async function voyagerFetch<T>(path: string, params?: Record<string, string>, re
   // Rate limit: retry once after 2s
   if (res.status === 429 && !retried) {
     await new Promise((r) => setTimeout(r, 2000));
-    return voyagerFetch<T>(path, params, true);
+    return voyagerFetch<T>(path, params, true, options);
   }
 
   if (res.status === 429) {
     throw new Error("Rate limited — please try again in a moment.");
+  }
+
+  if (res.status === 403) {
+    if (!effectiveApiKey) {
+      throw new Error("Voyager API rejected request (403). Add a Voyager API key in settings.");
+    }
+    throw new Error("Voyager API key rejected (403). Verify your key in settings.");
   }
 
   if (!res.ok) {
@@ -112,8 +138,16 @@ async function voyagerFetch<T>(path: string, params?: Record<string, string>, re
   return res.json() as Promise<T>;
 }
 
-export async function fetchTokenMetadata(contractAddress: string): Promise<TokenMetadata> {
-  const data = await voyagerFetch<VoyagerContractResponse>(`/contracts/${contractAddress}`);
+export async function fetchTokenMetadata(
+  contractAddress: string,
+  options?: VoyagerClientOptions
+): Promise<TokenMetadata> {
+  const data = await voyagerFetch<VoyagerContractResponse>(
+    `/contracts/${contractAddress}`,
+    undefined,
+    false,
+    options
+  );
 
   if (!data.isErcToken) {
     throw new Error("This address is not an ERC-20 token contract.");
@@ -133,9 +167,17 @@ function parseTransferValue(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export async function fetchAddressProfile(address: string): Promise<AddressProfile> {
+export async function fetchAddressProfile(
+  address: string,
+  options?: VoyagerClientOptions
+): Promise<AddressProfile> {
   try {
-    const data = await voyagerFetch<VoyagerContractResponse>(`/contracts/${address}`);
+    const data = await voyagerFetch<VoyagerContractResponse>(
+      `/contracts/${address}`,
+      undefined,
+      false,
+      options
+    );
     return {
       address: normalizeAddress(data.address || address),
       alias: data.contractAlias || data.alias || null,
@@ -156,14 +198,17 @@ export async function fetchAddressProfile(address: string): Promise<AddressProfi
   }
 }
 
-export async function fetchAddressProfiles(addresses: string[]): Promise<Map<string, AddressProfile>> {
+export async function fetchAddressProfiles(
+  addresses: string[],
+  options?: VoyagerClientOptions
+): Promise<Map<string, AddressProfile>> {
   const map = new Map<string, AddressProfile>();
   const unique = Array.from(new Set(addresses.map((addr) => normalizeAddress(addr))));
   const BATCH_SIZE = 8;
 
   for (let i = 0; i < unique.length; i += BATCH_SIZE) {
     const batch = unique.slice(i, i + BATCH_SIZE);
-    const profiles = await Promise.all(batch.map((addr) => fetchAddressProfile(addr)));
+    const profiles = await Promise.all(batch.map((addr) => fetchAddressProfile(addr, options)));
     for (const profile of profiles) {
       map.set(profile.address, profile);
     }
@@ -175,7 +220,8 @@ export async function fetchAddressProfiles(addresses: string[]): Promise<Map<str
 export async function fetchAddressTransfers(
   address: string,
   maxPages: number = 8,
-  maxTransfers: number = 400
+  maxTransfers: number = 400,
+  options?: VoyagerClientOptions
 ): Promise<AddressTransfer[]> {
   const normalizedAddress = normalizeAddress(address);
   const transfers: AddressTransfer[] = [];
@@ -183,7 +229,9 @@ export async function fetchAddressTransfers(
   for (let page = 1; page <= maxPages; page++) {
     const data = await voyagerFetch<VoyagerTransfersResponse>(
       `/contracts/${normalizedAddress}/transfers`,
-      { ps: "50", p: String(page) }
+      { ps: "50", p: String(page) },
+      false,
+      options
     );
 
     if (data.items.length === 0) break;
@@ -223,7 +271,8 @@ export async function fetchAddressTransfers(
 
 export async function fetchHolders(
   contractAddress: string,
-  limit: number
+  limit: number,
+  options?: VoyagerClientOptions
 ): Promise<{ holders: TokenHolder[]; totalSupply: number }> {
   const capped = Math.min(limit, 150);
   const holders: TokenHolder[] = [];
@@ -233,7 +282,9 @@ export async function fetchHolders(
   while (holders.length < capped) {
     const data = await voyagerFetch<VoyagerHoldersResponse>(
       `/tokens/${contractAddress}/holders`,
-      { ps: String(pageSize), p: String(page) }
+      { ps: String(pageSize), p: String(page) },
+      false,
+      options
     );
 
     if (data.items.length === 0) break;
@@ -278,7 +329,8 @@ export async function fetchTransfers(
   contractAddress: string,
   holderAddresses: Set<string>,
   _decimals?: number,
-  pagesPerHolder: number = 5
+  pagesPerHolder: number = 5,
+  options?: VoyagerClientOptions
 ): Promise<TransferEdge[]> {
   const edgeMap = new Map<string, { from: string; to: string; volume: number; txCount: number }>();
   const normalizedContract = normalizeAddress(contractAddress);
@@ -318,7 +370,9 @@ export async function fetchTransfers(
         try {
           const data = await voyagerFetch<VoyagerTransfersResponse>(
             `/contracts/${holderAddr}/transfers`,
-            { ps: "50", p: String(page) }
+            { ps: "50", p: String(page) },
+            false,
+            options
           );
 
           for (const item of data.items) {

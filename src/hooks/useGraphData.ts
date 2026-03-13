@@ -6,6 +6,7 @@ import type { EntityType, GraphData, GraphMode, TokenHolder, TransferEdge } from
 interface GraphFetchOptions {
   depth: number;
   maxTransfersPerAddress: number;
+  voyagerApiKey?: string;
 }
 
 function countEntityTypes(nodes: TokenHolder[]): Partial<Record<EntityType, number>> {
@@ -135,9 +136,17 @@ export function useGraphData() {
         1000,
         Math.max(50, options?.maxTransfersPerAddress || 250)
       );
+      const voyagerApiKey = options?.voyagerApiKey?.trim();
+      const requestInit: RequestInit = {};
+      if (signal) requestInit.signal = signal;
+      if (voyagerApiKey) {
+        requestInit.headers = {
+          "x-voyager-api-key": voyagerApiKey,
+        };
+      }
       const res = await fetch(
         `/api/graph?target=${encodeURIComponent(target)}&limit=${limit}&mode=${mode}&depth=${depth}&maxTransfers=${maxTransfers}`,
-        signal ? { signal } : undefined
+        requestInit
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch graph data");
