@@ -18,6 +18,7 @@ export default function Home() {
   const { graphData, isLoading, error, setError, fetchGraph, expandGraphFromNode } = useGraphData();
   const { tooltipNode, tooltipPos, handleNodeHover } = useTooltip();
   const [selectedNode, setSelectedNode] = useState<SimulationNode | null>(null);
+  const [autoPanelFocusAddress, setAutoPanelFocusAddress] = useState<string | null>(null);
   const [expandedAddresses, setExpandedAddresses] = useState<Set<string>>(new Set());
   const [requestContext, setRequestContext] = useState<{
     mode: "token" | "address";
@@ -43,6 +44,37 @@ export default function Home() {
   });
 
   const expandedCount = useMemo(() => expandedAddresses.size, [expandedAddresses]);
+  const lowSignalNotice = useMemo(() => {
+    if (!graphData || graphData.mode !== "address") return null;
+    const hasZero = graphData.nodes.some((node) =>
+      node.address === "0x0000000000000000000000000000000000000000000000000000000000000000"
+    );
+    if (graphData.nodes.length <= 2 && hasZero) {
+      return "Limited signal: this address mostly interacts with the zero address (mint/burn/system flow).";
+    }
+    if (graphData.nodes.length <= 2) {
+      return "Limited signal: only a small number of connected addresses were found.";
+    }
+    return null;
+  }, [graphData]);
+
+  const panelNode = useMemo(() => {
+    if (selectedNode) return selectedNode;
+    if (!graphData || !autoPanelFocusAddress) return null;
+    if (graphData.focusAddress !== autoPanelFocusAddress) return null;
+    const focus = graphData.nodes.find((node) => node.address === graphData.focusAddress);
+    if (!focus) return null;
+    return {
+      ...focus,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      fx: null,
+      fy: null,
+      radius: 24,
+    } satisfies SimulationNode;
+  }, [selectedNode, graphData, autoPanelFocusAddress]);
 
   const handleSubmitGraph = useCallback(
     (
@@ -64,6 +96,8 @@ export default function Home() {
       setExploreOptions({ limit, depth, maxTransfersPerAddress, voyagerApiKey });
       const normalized = normalizeAddress(address);
       setExpandedAddresses(new Set([normalized]));
+      setSelectedNode(null);
+      setAutoPanelFocusAddress(normalized);
       fetchGraph(address, limit, mode, options);
     },
     [fetchGraph]
@@ -71,6 +105,7 @@ export default function Home() {
 
   const handleNodeClick = useCallback((node: SimulationNode) => {
     setSelectedNode(node);
+    setAutoPanelFocusAddress(null);
   }, []);
 
   const handleNodeDoubleClick = useCallback(
@@ -93,6 +128,7 @@ export default function Home() {
 
   const handleClosePanel = useCallback(() => {
     setSelectedNode(null);
+    setAutoPanelFocusAddress(null);
   }, []);
 
   const handleDismissError = useCallback(() => {
@@ -193,6 +229,11 @@ export default function Home() {
               ))}
             </div>
           )}
+          {lowSignalNotice && (
+            <div className="text-amber-300 bg-amber-500/10 border border-amber-700/40 rounded px-2 py-1">
+              {lowSignalNotice}
+            </div>
+          )}
         </div>
       )}
 
@@ -219,7 +260,7 @@ export default function Home() {
           <div className="w-full h-full flex flex-col">
             {graphData.mode === "address" && (
               <div className="px-4 py-2 text-[11px] text-cyan-200/90 border-b border-cyan-900/40 bg-cyan-950/20">
-                Double-click any bubble to expand that node with 1-hop neighbors.
+                Click a bubble for details. Double-click to expand that node with 1-hop neighbors.
               </div>
             )}
             <BubbleMap
@@ -243,7 +284,7 @@ export default function Home() {
 
       {/* Detail panel */}
       <DetailPanel
-        node={selectedNode}
+        node={panelNode}
         tokenSymbol={graphData?.token.symbol ?? ""}
         edges={graphData?.edges ?? []}
         nodes={graphData?.nodes ?? []}

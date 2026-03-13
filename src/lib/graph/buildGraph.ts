@@ -28,6 +28,9 @@ interface AddressGraphOptions {
   maxTransfersPerAddress: number;
 }
 
+const ZERO_ADDRESS =
+  "0x0000000000000000000000000000000000000000000000000000000000000000";
+
 function increment(map: Map<string, number>, key: string, amount: number): void {
   map.set(key, (map.get(key) || 0) + amount);
 }
@@ -77,9 +80,17 @@ export async function buildGraphData(
   metadata.totalSupply = totalSupply;
 
   const nodes = holders.map((holder) => {
-    const classification = classifyEntity({ alias: holder.alias });
+    const isZeroAddress = holder.address === ZERO_ADDRESS;
+    const classification = isZeroAddress
+      ? {
+          type: "service" as const,
+          label: "System",
+          description: "Protocol zero address used for mint/burn flows.",
+        }
+      : classifyEntity({ alias: holder.alias });
     return {
       ...holder,
+      alias: isZeroAddress ? holder.alias || "Zero Address" : holder.alias,
       entityType: classification.type,
       entityLabel: classification.label,
       entityDescription: classification.description,
@@ -264,18 +275,27 @@ export async function buildAddressGraphData(
   const rawNodes = nodeAddresses.map((nodeAddress) => {
     const profile = nodeProfiles.get(nodeAddress);
     const stats = statsMap.get(nodeAddress)!;
-    const classification = classifyEntity({
-      alias: aliasHints.get(nodeAddress) || profile?.alias || null,
-      name: profile?.name || null,
-      contractType: profile?.contractType || null,
-      isToken: profile?.isErcToken,
-    });
+    const isZeroAddress = nodeAddress === ZERO_ADDRESS;
+    const classification = isZeroAddress
+      ? {
+          type: "service" as const,
+          label: "System",
+          description: "Protocol zero address used for mint/burn flows.",
+        }
+      : classifyEntity({
+          alias: aliasHints.get(nodeAddress) || profile?.alias || null,
+          name: profile?.name || null,
+          contractType: profile?.contractType || null,
+          isToken: profile?.isErcToken,
+        });
     const totalVolume = stats.incomingVolume + stats.outgoingVolume;
     const totalTx = stats.incomingTxCount + stats.outgoingTxCount;
     const score = activityScore(totalVolume, totalTx);
     return {
       address: nodeAddress,
-      alias: aliasHints.get(nodeAddress) || profile?.alias || null,
+      alias: isZeroAddress
+        ? "Zero Address"
+        : aliasHints.get(nodeAddress) || profile?.alias || null,
       balance: String(totalVolume),
       balanceFormatted: score,
       percentSupply: 0,
