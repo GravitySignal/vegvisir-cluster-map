@@ -74,6 +74,34 @@ function resolveApiKey(options?: VoyagerClientOptions): string {
   return (options?.apiKey || API_KEY || "").trim();
 }
 
+function normalizeErrorBody(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "Unknown upstream error.";
+
+  try {
+    const parsed = JSON.parse(trimmed) as { message?: string; error?: string };
+    if (typeof parsed.message === "string" && parsed.message.trim()) {
+      return parsed.message.trim();
+    }
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      return parsed.error.trim();
+    }
+  } catch {
+    // Not JSON, continue.
+  }
+
+  // If HTML was returned (Cloudflare/AWS gateway pages), avoid leaking raw markup.
+  if (trimmed.includes("<html") || trimmed.includes("<!DOCTYPE html")) {
+    const titleMatch = trimmed.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch?.[1]) {
+      return titleMatch[1].trim();
+    }
+    return "Gateway error page returned by upstream.";
+  }
+
+  return trimmed.slice(0, 300);
+}
+
 async function voyagerFetch<T>(
   path: string,
   params?: Record<string, string>,
@@ -123,6 +151,17 @@ async function voyagerFetch<T>(
     throw new Error("Rate limited — please try again in a moment.");
   }
 
+  if ((res.status === 502 || res.status === 503 || res.status === 504) && !retried) {
+    await new Promise((r) => setTimeout(r, 1500));
+    return voyagerFetch<T>(path, params, true, options);
+  }
+
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    throw new Error(
+      "Voyager backend timed out. Try again, or lower depth/max transfers per address."
+    );
+  }
+
   if (res.status === 403) {
     if (!effectiveApiKey) {
       throw new Error("Voyager API rejected request (403). Add a Voyager API key in settings.");
@@ -132,7 +171,8 @@ async function voyagerFetch<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Voyager API error ${res.status}: ${text}`);
+    const summary = normalizeErrorBody(text);
+    throw new Error(`Voyager API error ${res.status}: ${summary}`);
   }
 
   return res.json() as Promise<T>;
