@@ -53,8 +53,10 @@ function BubbleMapInner({
       simulationRef.current = null;
     }
 
+    // Hide protocol zero address nodes (mint/burn sentinel) from visualization.
+    const visibleNodes = graphData.nodes.filter((node) => !isZeroAddress(node.address));
     // Prepare data
-    const nodes = prepareNodes(graphData.nodes);
+    const nodes = prepareNodes(visibleNodes);
     const links = prepareLinks(graphData.edges, nodes);
 
     // Create SVG
