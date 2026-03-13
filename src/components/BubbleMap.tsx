@@ -18,19 +18,25 @@ interface BubbleMapProps {
   graphData: GraphData;
   onNodeHover?: (node: SimulationNode | null, event?: MouseEvent) => void;
   onNodeClick?: (node: SimulationNode) => void;
+  onNodeDoubleClick?: (node: SimulationNode) => void;
+  expandedAddresses?: Set<string>;
 }
 
 function BubbleMapInner({
   graphData,
   onNodeHover,
   onNodeClick,
+  onNodeDoubleClick,
+  expandedAddresses,
 }: BubbleMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const simulationRef = useRef<ReturnType<typeof createSimulation> | null>(null);
   const onNodeHoverRef = useRef(onNodeHover);
   const onNodeClickRef = useRef(onNodeClick);
+  const onNodeDoubleClickRef = useRef(onNodeDoubleClick);
   onNodeHoverRef.current = onNodeHover;
   onNodeClickRef.current = onNodeClick;
+  onNodeDoubleClickRef.current = onNodeDoubleClick;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -101,6 +107,11 @@ function BubbleMapInner({
       .attr("fill", (d: SimulationNode) => entityColor(d.entityType || "unknown"))
       .attr("stroke", (d: SimulationNode) => (d.isFocus ? "white" : "transparent"))
       .attr("stroke-width", 2)
+      .attr("stroke-dasharray", (d: SimulationNode) => {
+        if (!expandedAddresses || graphData.mode !== "address") return null;
+        if (d.isFocus) return null;
+        return expandedAddresses.has(d.address) ? null : "4,3";
+      })
       .attr("opacity", (d: SimulationNode) => (d.entityType === "individual" ? 1 : 0.88))
       .style("cursor", "pointer");
 
@@ -150,6 +161,10 @@ function BubbleMapInner({
     // Click events
     nodeSelection.on("click", function (_event: MouseEvent, d: SimulationNode) {
       onNodeClickRef.current?.(d);
+    });
+    nodeSelection.on("dblclick", function (event: MouseEvent, d: SimulationNode) {
+      event.stopPropagation();
+      onNodeDoubleClickRef.current?.(d);
     });
 
     // Drag behavior
@@ -203,7 +218,7 @@ function BubbleMapInner({
       simulation.stop();
       select(container).select("svg").remove();
     };
-  }, [graphData]);
+  }, [graphData, expandedAddresses]);
 
   return (
     <div

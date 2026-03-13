@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import TokenInput from "@/components/TokenInput";
 import BubbleMap from "@/components/BubbleMap";
 import BubbleTooltip from "@/components/BubbleTooltip";
@@ -11,16 +11,80 @@ import { useGraphData } from "@/hooks/useGraphData";
 import { useTooltip } from "@/hooks/useTooltip";
 import { entityColor } from "@/lib/starknet/entityClassification";
 import { truncateAddress } from "@/lib/utils/format";
+import { normalizeAddress } from "@/lib/utils/validation";
 import type { EntityType, SimulationNode } from "@/types";
 
 export default function Home() {
-  const { graphData, isLoading, error, setError, fetchGraph } = useGraphData();
+  const { graphData, isLoading, error, setError, fetchGraph, expandGraphFromNode } = useGraphData();
   const { tooltipNode, tooltipPos, handleNodeHover } = useTooltip();
   const [selectedNode, setSelectedNode] = useState<SimulationNode | null>(null);
+  const [expandedAddresses, setExpandedAddresses] = useState<Set<string>>(new Set());
+  const [requestContext, setRequestContext] = useState<{
+    mode: "token" | "address";
+    depth: number;
+    maxTransfersPerAddress: number;
+    action: "explore" | "expand";
+  }>({
+    mode: "address",
+    depth: 2,
+    maxTransfersPerAddress: 250,
+    action: "explore",
+  });
+  const [exploreOptions, setExploreOptions] = useState<{
+    limit: number;
+    depth: number;
+    maxTransfersPerAddress: number;
+  }>({
+    limit: 80,
+    depth: 2,
+    maxTransfersPerAddress: 250,
+  });
+
+  const expandedCount = useMemo(() => expandedAddresses.size, [expandedAddresses]);
+
+  const handleSubmitGraph = useCallback(
+    (
+      address: string,
+      limit: number,
+      mode: "token" | "address",
+      options?: { depth: number; maxTransfersPerAddress: number }
+    ) => {
+      const depth = options?.depth || 2;
+      const maxTransfersPerAddress = options?.maxTransfersPerAddress || 250;
+      setRequestContext({
+        mode,
+        depth,
+        maxTransfersPerAddress,
+        action: "explore",
+      });
+      setExploreOptions({ limit, depth, maxTransfersPerAddress });
+      const normalized = normalizeAddress(address);
+      setExpandedAddresses(new Set([normalized]));
+      fetchGraph(address, limit, mode, options);
+    },
+    [fetchGraph]
+  );
 
   const handleNodeClick = useCallback((node: SimulationNode) => {
     setSelectedNode(node);
   }, []);
+
+  const handleNodeDoubleClick = useCallback(
+    async (node: SimulationNode) => {
+      if (!graphData || graphData.mode !== "address") return;
+      if (expandedAddresses.has(node.address)) return;
+      setRequestContext((ctx) => ({ ...ctx, mode: "address", action: "expand" }));
+      await expandGraphFromNode(node.address, exploreOptions.limit, {
+        maxTransfersPerAddress: exploreOptions.maxTransfersPerAddress,
+      });
+      setExpandedAddresses((prev) => {
+        const next = new Set(prev);
+        next.add(node.address);
+        return next;
+      });
+    },
+    [expandGraphFromNode, expandedAddresses, exploreOptions, graphData]
+  );
 
   const handleClosePanel = useCallback(() => {
     setSelectedNode(null);
@@ -39,7 +103,7 @@ export default function Home() {
             <h1 className="text-xl font-bold text-white tracking-tight">
               Starknet Bubble Map
             </h1>
-            <TokenInput onSubmit={fetchGraph} isLoading={isLoading} />
+            <TokenInput onSubmit={handleSubmitGraph} isLoading={isLoading} />
           </div>
         </div>
       </header>
@@ -61,6 +125,9 @@ export default function Home() {
                 focus: {truncateAddress(graphData.focusAddress, 6)}
                 {graphData.metadata.exploration && (
                   <> • depth {graphData.metadata.exploration.depth} • {graphData.metadata.exploration.processedAddresses} addresses processed</>
+                )}
+                {expandedCount > 0 && (
+                  <> • expanded nodes {expandedCount}</>
                 )}
               </span>
             ) : (
@@ -129,7 +196,13 @@ export default function Home() {
 
       {/* Main content */}
       <main className="flex-1 flex items-center justify-center relative">
-        <LoadingState isLoading={isLoading} />
+        <LoadingState
+          isLoading={isLoading}
+          mode={requestContext.mode}
+          depth={requestContext.depth}
+          maxTransfersPerAddress={requestContext.maxTransfersPerAddress}
+          action={requestContext.action}
+        />
 
         {!isLoading && !graphData && !error && (
           <p className="text-gray-500 text-lg">
@@ -138,11 +211,20 @@ export default function Home() {
         )}
 
         {graphData && (
-          <BubbleMap
-            graphData={graphData}
-            onNodeHover={handleNodeHover}
-            onNodeClick={handleNodeClick}
-          />
+          <div className="w-full h-full flex flex-col">
+            {graphData.mode === "address" && (
+              <div className="px-4 py-2 text-[11px] text-cyan-200/90 border-b border-cyan-900/40 bg-cyan-950/20">
+                Double-click any bubble to expand that node with 1-hop neighbors.
+              </div>
+            )}
+            <BubbleMap
+              graphData={graphData}
+              onNodeHover={handleNodeHover}
+              onNodeClick={handleNodeClick}
+              onNodeDoubleClick={handleNodeDoubleClick}
+              expandedAddresses={expandedAddresses}
+            />
+          </div>
         )}
       </main>
 
