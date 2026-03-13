@@ -54,6 +54,7 @@ export function prepareLinks(
     volume: e.volume,
     thickness: thicknessScale(e.volume),
     relation: e.relation,
+    tokenAddress: e.tokenAddress,
     tokenSymbol: e.tokenSymbol,
   }));
 }

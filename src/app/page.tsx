@@ -57,7 +57,12 @@ export default function Home() {
             <span>{graphData.metadata.edgesCount} connections</span>
             <span className="mx-2">&middot;</span>
             {graphData.mode === "address" ? (
-              <span>focus: {truncateAddress(graphData.focusAddress, 6)}</span>
+              <span>
+                focus: {truncateAddress(graphData.focusAddress, 6)}
+                {graphData.metadata.exploration && (
+                  <> • depth {graphData.metadata.exploration.depth} • {graphData.metadata.exploration.processedAddresses} addresses processed</>
+                )}
+              </span>
             ) : (
               <span>
                 {graphData.token.name} ({graphData.token.symbol})
@@ -96,6 +101,22 @@ export default function Home() {
                   <span className="text-gray-300 capitalize">
                     {type}: {count}
                   </span>
+                </span>
+              ))}
+            </div>
+          )}
+          {graphData.mode === "address" && graphData.metadata.tokenLegend && graphData.metadata.tokenLegend.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {graphData.metadata.tokenLegend.map((token) => (
+                <span
+                  key={token.tokenAddress}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-gray-700"
+                >
+                  <span
+                    className="inline-block w-2 h-2 rounded-full"
+                    style={{ backgroundColor: token.color }}
+                  />
+                  <span className="text-gray-300 uppercase">{token.tokenSymbol}</span>
                 </span>
               ))}
             </div>

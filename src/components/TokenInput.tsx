@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { isValidStarknetAddress } from "@/lib/utils/validation";
 import { truncateAddress } from "@/lib/utils/format";
 import type { GraphMode } from "@/types";
@@ -10,18 +10,72 @@ const QUICK_TOKENS = [
   { label: "ETH", address: "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7" },
 ];
 
+const SETTINGS_KEY = "vegvisir_bubblemap_settings";
+
+function readInitialSettings(): {
+  limit: number;
+  depth: number;
+  maxTransfersPerAddress: number;
+} {
+  if (typeof window === "undefined") {
+    return { limit: 80, depth: 2, maxTransfersPerAddress: 250 };
+  }
+
+  try {
+    const storage = window.localStorage as Partial<Storage> | undefined;
+    if (!storage || typeof storage.getItem !== "function") {
+      return { limit: 80, depth: 2, maxTransfersPerAddress: 250 };
+    }
+    const raw = storage.getItem(SETTINGS_KEY);
+    if (!raw) {
+      return { limit: 80, depth: 2, maxTransfersPerAddress: 250 };
+    }
+    const parsed = JSON.parse(raw) as {
+      limit?: number;
+      depth?: number;
+      maxTransfersPerAddress?: number;
+    };
+    return {
+      limit: Math.min(150, Math.max(10, parsed.limit || 80)),
+      depth: Math.min(3, Math.max(1, parsed.depth || 2)),
+      maxTransfersPerAddress: Math.min(
+        1000,
+        Math.max(50, parsed.maxTransfersPerAddress || 250)
+      ),
+    };
+  } catch {
+    return { limit: 80, depth: 2, maxTransfersPerAddress: 250 };
+  }
+}
+
 interface TokenInputProps {
-  onSubmit: (address: string, limit: number, mode: GraphMode) => void;
+  onSubmit: (
+    address: string,
+    limit: number,
+    mode: GraphMode,
+    options?: { depth: number; maxTransfersPerAddress: number }
+  ) => void;
   isLoading: boolean;
 }
 
 export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
+  const initialSettings = readInitialSettings();
   const [address, setAddress] = useState("");
-  const [limit, setLimit] = useState(80);
+  const [limit, setLimit] = useState(initialSettings.limit);
   const [mode, setMode] = useState<GraphMode>("address");
+  const [depth, setDepth] = useState(initialSettings.depth);
+  const [maxTransfersPerAddress, setMaxTransfersPerAddress] = useState(
+    initialSettings.maxTransfersPerAddress
+  );
   const [error, setError] = useState<string | null>(null);
 
   const isAddressMode = mode === "address";
+
+  useEffect(() => {
+    const storage = window.localStorage as Partial<Storage> | undefined;
+    if (!storage || typeof storage.setItem !== "function") return;
+    storage.setItem(SETTINGS_KEY, JSON.stringify({ limit, depth, maxTransfersPerAddress }));
+  }, [limit, depth, maxTransfersPerAddress]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -39,14 +93,20 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
       return;
     }
     setError(null);
-    onSubmit(trimmed, limit, mode);
+    onSubmit(trimmed, limit, mode, {
+      depth,
+      maxTransfersPerAddress,
+    });
   }
 
   function handleQuickSelect(addr: string) {
     setMode("token");
     setAddress(addr);
     setError(null);
-    onSubmit(addr, limit, "token");
+    onSubmit(addr, limit, "token", {
+      depth,
+      maxTransfersPerAddress,
+    });
   }
 
   return (
@@ -98,7 +158,7 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <label className="text-gray-400 text-sm whitespace-nowrap">
-            {isAddressMode ? "Max connections:" : "Max holders:"}
+            {isAddressMode ? "Max nodes:" : "Max holders:"}
           </label>
           <input
             type="number"
@@ -115,9 +175,41 @@ export default function TokenInput({ onSubmit, isLoading }: TokenInputProps) {
           disabled={isLoading}
           className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors shrink-0"
         >
-          {isLoading ? "Loading..." : "Analyze"}
+          {isLoading ? "Loading..." : "Explore"}
         </button>
       </div>
+
+      {isAddressMode && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="flex items-center gap-2">
+            <label className="text-gray-400 text-sm whitespace-nowrap">Depth:</label>
+            <select
+              value={depth}
+              onChange={(e) => setDepth(Math.min(3, Math.max(1, Number(e.target.value))))}
+              className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              disabled={isLoading}
+            >
+              <option value={1}>1 hop (fast)</option>
+              <option value={2}>2 hops (default)</option>
+              <option value={3}>3 hops (deep)</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-gray-400 text-sm whitespace-nowrap">Max transfers/address:</label>
+            <input
+              type="number"
+              value={maxTransfersPerAddress}
+              onChange={(e) =>
+                setMaxTransfersPerAddress(Math.min(1000, Math.max(50, Number(e.target.value))))
+              }
+              min={50}
+              max={1000}
+              className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+      )}
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 

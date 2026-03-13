@@ -58,6 +58,16 @@ export interface GraphData {
     fetchedAt: string;
     entityCounts?: Partial<Record<EntityType, number>>;
     note?: string;
+    exploration?: {
+      depth: number;
+      processedAddresses: number;
+      maxTransfersPerAddress: number;
+    };
+    tokenLegend?: Array<{
+      tokenAddress: string;
+      tokenSymbol: string;
+      color: string;
+    }>;
   };
   funding?: {
     totalIncomingTxCount: number;
@@ -90,5 +100,6 @@ export interface SimulationLink {
   volume: number;
   thickness: number;
   relation?: "interaction" | "funding";
+  tokenAddress?: string;
   tokenSymbol?: string | null;
 }

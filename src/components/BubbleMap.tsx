@@ -10,6 +10,7 @@ import {
   createSimulation,
 } from "@/lib/graph/simulation";
 import { entityColor } from "@/lib/starknet/entityClassification";
+import { getTokenColor } from "@/lib/utils/tokenColor";
 import { truncateAddress } from "@/lib/utils/format";
 import type { GraphData, SimulationNode, SimulationLink } from "@/types";
 
@@ -78,10 +79,15 @@ function BubbleMapInner({
       .selectAll("line")
       .data(links)
       .join("line")
-      .attr("stroke", (d: SimulationLink) =>
-        d.relation === "funding" ? "rgba(34, 197, 94, 0.45)" : "rgba(59, 130, 246, 0.3)"
-      )
+      .attr("stroke", (d: SimulationLink) => {
+        if (graphData.mode === "address") {
+          return getTokenColor(d.tokenAddress, d.tokenSymbol);
+        }
+        return d.relation === "funding" ? "rgba(34, 197, 94, 0.45)" : "rgba(59, 130, 246, 0.3)";
+      })
       .attr("stroke-width", (d: SimulationLink) => d.thickness)
+      .attr("stroke-opacity", 0.5)
+      .attr("stroke-dasharray", (d: SimulationLink) => (d.relation === "funding" ? "3,2" : null))
       .attr("stroke-linecap", "round");
 
     // Render nodes

@@ -8,6 +8,8 @@ export async function GET(request: NextRequest) {
   const mode = modeParam === "address" ? "address" : "token";
   const target = searchParams.get("target") || searchParams.get("token");
   const limitParam = searchParams.get("limit");
+  const depthParam = searchParams.get("depth");
+  const maxTransfersParam = searchParams.get("maxTransfers");
 
   if (!target) {
     return NextResponse.json({ error: "Missing address/contract input." }, { status: 400 });
@@ -21,11 +23,19 @@ export async function GET(request: NextRequest) {
   }
 
   const limit = Math.min(150, Math.max(10, parseInt(limitParam || "100", 10) || 100));
+  const depth = Math.min(3, Math.max(1, parseInt(depthParam || "2", 10) || 2));
+  const maxTransfersPerAddress = Math.min(
+    1000,
+    Math.max(50, parseInt(maxTransfersParam || "250", 10) || 250)
+  );
 
   try {
     const graphData =
       mode === "address"
-        ? await buildAddressGraphData(target, limit)
+        ? await buildAddressGraphData(target, limit, {
+            depth,
+            maxTransfersPerAddress,
+          })
         : await buildGraphData(target, limit);
     return NextResponse.json(graphData, {
       headers: { "Cache-Control": "public, max-age=300" },

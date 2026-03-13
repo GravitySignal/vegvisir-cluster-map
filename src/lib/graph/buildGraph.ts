@@ -1,4 +1,5 @@
 import {
+  type AddressTransfer,
   fetchAddressProfiles,
   fetchAddressTransfers,
   fetchHolders,
@@ -7,6 +8,7 @@ import {
 } from "@/lib/starknet/voyager";
 import { getCached, setCache } from "@/lib/starknet/cache";
 import { classifyEntity } from "@/lib/starknet/entityClassification";
+import { getTokenColor } from "@/lib/utils/tokenColor";
 import { normalizeAddress } from "@/lib/utils/validation";
 import type { EntityType, GraphData, TokenHolder, TransferEdge } from "@/types";
 
@@ -19,6 +21,11 @@ interface PeerAggregate {
   outgoingTxCount: number;
   incomingTokens: Map<string, number>;
   outgoingTokens: Map<string, number>;
+}
+
+interface AddressGraphOptions {
+  depth: number;
+  maxTransfersPerAddress: number;
 }
 
 function increment(map: Map<string, number>, key: string, amount: number): void {
@@ -101,32 +108,212 @@ export async function buildGraphData(
 
 export async function buildAddressGraphData(
   address: string,
-  limit: number
+  limit: number,
+  options?: Partial<AddressGraphOptions>
 ): Promise<GraphData> {
   const normalizedAddress = normalizeAddress(address);
-  const cacheKey = `address:${normalizedAddress}:${limit}`;
+  const depth = Math.min(3, Math.max(1, options?.depth || 2));
+  const maxTransfersPerAddress = Math.min(
+    1000,
+    Math.max(50, options?.maxTransfersPerAddress || 250)
+  );
+  const maxPagesPerAddress = Math.max(1, Math.ceil(maxTransfersPerAddress / 50));
+
+  const cacheKey = `address:${normalizedAddress}:${limit}:d${depth}:m${maxTransfersPerAddress}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
 
-  const transfers = await fetchAddressTransfers(normalizedAddress, 10);
-  if (transfers.length === 0) {
+  const queue: Array<{ address: string; hop: number }> = [{ address: normalizedAddress, hop: 0 }];
+  const discovered = new Set<string>([normalizedAddress]);
+  const processed = new Set<string>();
+  const transferMap = new Map<string, AddressTransfer>();
+  const aliasHints = new Map<string, string>();
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (processed.has(current.address)) continue;
+    processed.add(current.address);
+
+    const transfers = await fetchAddressTransfers(
+      current.address,
+      maxPagesPerAddress,
+      maxTransfersPerAddress
+    );
+
+    const candidatePeers = new Map<string, number>();
+
+    for (const transfer of transfers) {
+      const transferKey = `${transfer.txHash}:${transfer.from}:${transfer.to}:${transfer.tokenAddress}:${transfer.volume}`;
+      if (!transferMap.has(transferKey)) {
+        transferMap.set(transferKey, transfer);
+      }
+      if (transfer.fromAlias && !aliasHints.has(transfer.from)) {
+        aliasHints.set(transfer.from, transfer.fromAlias);
+      }
+      if (transfer.toAlias && !aliasHints.has(transfer.to)) {
+        aliasHints.set(transfer.to, transfer.toAlias);
+      }
+
+      const peer = transfer.from === current.address ? transfer.to : transfer.from;
+      candidatePeers.set(peer, (candidatePeers.get(peer) || 0) + transfer.volume + 1);
+    }
+
+    if (current.hop >= depth - 1) continue;
+
+    const sortedPeers = Array.from(candidatePeers.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([peer]) => peer);
+
+    for (const peer of sortedPeers) {
+      if (discovered.has(peer)) continue;
+      if (discovered.size >= limit) break;
+      discovered.add(peer);
+      queue.push({ address: peer, hop: current.hop + 1 });
+    }
+  }
+
+  const allTransfers = Array.from(transferMap.values());
+  if (allTransfers.length === 0) {
     throw new Error("No transfer activity found for this address.");
   }
 
-  const peerMap = new Map<string, PeerAggregate>();
-  let totalIncomingVolume = 0;
-  let totalIncomingTxCount = 0;
+  const includedAddresses = new Set(Array.from(discovered).slice(0, limit));
+  includedAddresses.add(normalizedAddress);
 
-  for (const transfer of transfers) {
-    const isIncoming = transfer.to === normalizedAddress;
-    const peerAddress = isIncoming ? transfer.from : transfer.to;
-    const peerAlias = isIncoming ? transfer.fromAlias : transfer.toAlias;
+  type EdgeAggregate = {
+    from: string;
+    to: string;
+    tokenAddress: string;
+    volume: number;
+    txCount: number;
+  };
+  const edgeMap = new Map<string, EdgeAggregate>();
+  const tokenVolumeMap = new Map<string, number>();
 
-    let agg = peerMap.get(peerAddress);
+  for (const transfer of allTransfers) {
+    if (!includedAddresses.has(transfer.from) || !includedAddresses.has(transfer.to)) continue;
+    if (transfer.from === transfer.to) continue;
+
+    const edgeKey = `${transfer.from}:${transfer.to}:${transfer.tokenAddress}`;
+    const existing = edgeMap.get(edgeKey);
+    if (existing) {
+      existing.volume += transfer.volume;
+      existing.txCount += 1;
+    } else {
+      edgeMap.set(edgeKey, {
+        from: transfer.from,
+        to: transfer.to,
+        tokenAddress: transfer.tokenAddress,
+        volume: transfer.volume,
+        txCount: 1,
+      });
+    }
+    increment(tokenVolumeMap, transfer.tokenAddress, transfer.volume);
+  }
+
+  const nodeAddresses = Array.from(includedAddresses);
+  const nodeProfiles = await fetchAddressProfiles(nodeAddresses);
+
+  const tokenAddresses = Array.from(tokenVolumeMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 120)
+    .map(([address]) => address);
+  const tokenProfiles = tokenAddresses.length > 0 ? await fetchAddressProfiles(tokenAddresses) : new Map();
+
+  type NodeStats = {
+    incomingVolume: number;
+    outgoingVolume: number;
+    incomingTxCount: number;
+    outgoingTxCount: number;
+  };
+  const statsMap = new Map<string, NodeStats>();
+  for (const addr of nodeAddresses) {
+    statsMap.set(addr, {
+      incomingVolume: 0,
+      outgoingVolume: 0,
+      incomingTxCount: 0,
+      outgoingTxCount: 0,
+    });
+  }
+
+  for (const edge of edgeMap.values()) {
+    const fromStats = statsMap.get(edge.from);
+    const toStats = statsMap.get(edge.to);
+    if (fromStats) {
+      fromStats.outgoingVolume += edge.volume;
+      fromStats.outgoingTxCount += edge.txCount;
+    }
+    if (toStats) {
+      toStats.incomingVolume += edge.volume;
+      toStats.incomingTxCount += edge.txCount;
+    }
+  }
+
+  const rawNodes = nodeAddresses.map((nodeAddress) => {
+    const profile = nodeProfiles.get(nodeAddress);
+    const stats = statsMap.get(nodeAddress)!;
+    const classification = classifyEntity({
+      alias: aliasHints.get(nodeAddress) || profile?.alias || null,
+      name: profile?.name || null,
+      contractType: profile?.contractType || null,
+      isToken: profile?.isErcToken,
+    });
+    const totalVolume = stats.incomingVolume + stats.outgoingVolume;
+    const totalTx = stats.incomingTxCount + stats.outgoingTxCount;
+    const score = activityScore(totalVolume, totalTx);
+    return {
+      address: nodeAddress,
+      alias: aliasHints.get(nodeAddress) || profile?.alias || null,
+      balance: String(totalVolume),
+      balanceFormatted: score,
+      percentSupply: 0,
+      rank: 0,
+      entityType: classification.type,
+      entityLabel: classification.label,
+      entityDescription: classification.description,
+      isFocus: nodeAddress === normalizedAddress,
+      interactionTxCount: totalTx,
+      incomingTxCount: stats.incomingTxCount,
+      outgoingTxCount: stats.outgoingTxCount,
+      incomingVolume: stats.incomingVolume,
+      outgoingVolume: stats.outgoingVolume,
+    } satisfies TokenHolder;
+  });
+
+  const totalScore = rawNodes.reduce((sum, node) => sum + node.balanceFormatted, 0);
+  const nodes = rawNodes
+    .sort((a, b) => {
+      if (a.isFocus) return -1;
+      if (b.isFocus) return 1;
+      return b.balanceFormatted - a.balanceFormatted;
+    })
+    .map((node, index) => ({
+      ...node,
+      rank: index + 1,
+      percentSupply: totalScore > 0 ? (node.balanceFormatted / totalScore) * 100 : 0,
+    }));
+
+  const edges: TransferEdge[] = Array.from(edgeMap.values())
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 3000)
+    .map((edge) => ({
+      from: edge.from,
+      to: edge.to,
+      volume: edge.volume,
+      txCount: edge.txCount,
+      relation: edge.to === normalizedAddress ? "funding" : "interaction",
+      tokenAddress: edge.tokenAddress,
+      tokenSymbol: tokenProfiles.get(edge.tokenAddress)?.tokenSymbol || null,
+    }));
+
+  const fundingMap = new Map<string, PeerAggregate>();
+  for (const edge of edges) {
+    if (edge.to !== normalizedAddress) continue;
+    let agg = fundingMap.get(edge.from);
     if (!agg) {
       agg = {
-        address: peerAddress,
-        alias: peerAlias || null,
+        address: edge.from,
+        alias: aliasHints.get(edge.from) || nodeProfiles.get(edge.from)?.alias || null,
         incomingVolume: 0,
         outgoingVolume: 0,
         incomingTxCount: 0,
@@ -134,165 +321,21 @@ export async function buildAddressGraphData(
         incomingTokens: new Map<string, number>(),
         outgoingTokens: new Map<string, number>(),
       };
-      peerMap.set(peerAddress, agg);
+      fundingMap.set(edge.from, agg);
     }
-
-    if (!agg.alias && peerAlias) {
-      agg.alias = peerAlias;
-    }
-
-    if (isIncoming) {
-      agg.incomingVolume += transfer.volume;
-      agg.incomingTxCount += 1;
-      totalIncomingVolume += transfer.volume;
-      totalIncomingTxCount += 1;
-      increment(agg.incomingTokens, transfer.tokenAddress, transfer.volume);
-    } else {
-      agg.outgoingVolume += transfer.volume;
-      agg.outgoingTxCount += 1;
-      increment(agg.outgoingTokens, transfer.tokenAddress, transfer.volume);
+    agg.incomingVolume += edge.volume;
+    agg.incomingTxCount += edge.txCount;
+    if (edge.tokenAddress) {
+      increment(agg.incomingTokens, edge.tokenAddress, edge.volume);
     }
   }
 
-  const maxPeers = Math.max(5, limit - 1);
-  const selectedPeers = Array.from(peerMap.values())
-    .sort((a, b) => {
-      const scoreA = activityScore(a.incomingVolume + a.outgoingVolume, a.incomingTxCount + a.outgoingTxCount);
-      const scoreB = activityScore(b.incomingVolume + b.outgoingVolume, b.incomingTxCount + b.outgoingTxCount);
-      return scoreB - scoreA;
-    })
-    .slice(0, maxPeers);
-
-  const nodeAddresses = [normalizedAddress, ...selectedPeers.map((peer) => peer.address)];
-
-  const topFundingSources = Array.from(peerMap.values())
-    .filter((peer) => peer.incomingTxCount > 0)
+  const topFundingSources = Array.from(fundingMap.values())
     .sort((a, b) => b.incomingVolume - a.incomingVolume || b.incomingTxCount - a.incomingTxCount)
     .slice(0, 8);
 
-  const sourceAddresses = topFundingSources
-    .map((source) => source.address)
-    .filter((addr) => !nodeAddresses.includes(addr));
-
-  const allProfiles = await fetchAddressProfiles([...nodeAddresses, ...sourceAddresses]);
-
-  const tokenAddresses = Array.from(
-    new Set(
-      [...selectedPeers, ...topFundingSources]
-        .flatMap((source) => [dominantKey(source.incomingTokens), dominantKey(source.outgoingTokens)])
-        .filter((addr): addr is string => Boolean(addr))
-    )
-  );
-  const tokenProfiles = tokenAddresses.length > 0 ? await fetchAddressProfiles(tokenAddresses) : new Map();
-
-  const rootTotalVolume = transfers.reduce((sum, t) => sum + t.volume, 0);
-  const rootTotalTxCount = transfers.length;
-  const rootScore = activityScore(rootTotalVolume, rootTotalTxCount);
-
-  const peerScores = selectedPeers.map((peer) =>
-    activityScore(peer.incomingVolume + peer.outgoingVolume, peer.incomingTxCount + peer.outgoingTxCount)
-  );
-  const totalScore = rootScore + peerScores.reduce((sum, score) => sum + score, 0);
-
-  const rootProfile = allProfiles.get(normalizedAddress);
-  const rootClassification = classifyEntity({
-    alias: rootProfile?.alias || null,
-    name: rootProfile?.name || null,
-    contractType: rootProfile?.contractType || null,
-    isToken: rootProfile?.isErcToken,
-  });
-
-  const focusNode: TokenHolder = {
-    address: normalizedAddress,
-    alias: rootProfile?.alias || null,
-    balance: String(rootTotalVolume),
-    balanceFormatted: rootScore,
-    percentSupply: totalScore > 0 ? (rootScore / totalScore) * 100 : 0,
-    rank: 1,
-    entityType: rootClassification.type,
-    entityLabel: rootClassification.label,
-    entityDescription: rootClassification.description,
-    isFocus: true,
-    interactionTxCount: rootTotalTxCount,
-    incomingTxCount: totalIncomingTxCount,
-    outgoingTxCount: rootTotalTxCount - totalIncomingTxCount,
-    incomingVolume: totalIncomingVolume,
-    outgoingVolume: rootTotalVolume - totalIncomingVolume,
-  };
-
-  const peerNodes = selectedPeers
-    .map((peer, index) => {
-      const profile = allProfiles.get(peer.address);
-      const classification = classifyEntity({
-        alias: peer.alias || profile?.alias || null,
-        name: profile?.name || null,
-        contractType: profile?.contractType || null,
-        isToken: profile?.isErcToken,
-      });
-
-      const score = peerScores[index];
-      const totalTx = peer.incomingTxCount + peer.outgoingTxCount;
-      return {
-        address: peer.address,
-        alias: peer.alias || profile?.alias || null,
-        balance: String(peer.incomingVolume + peer.outgoingVolume),
-        balanceFormatted: score,
-        percentSupply: totalScore > 0 ? (score / totalScore) * 100 : 0,
-        rank: index + 2,
-        entityType: classification.type,
-        entityLabel: classification.label,
-        entityDescription: classification.description,
-        isFocus: false,
-        interactionTxCount: totalTx,
-        incomingTxCount: peer.outgoingTxCount,
-        outgoingTxCount: peer.incomingTxCount,
-        incomingVolume: peer.outgoingVolume,
-        outgoingVolume: peer.incomingVolume,
-      } satisfies TokenHolder;
-    })
-    .sort((a, b) => b.balanceFormatted - a.balanceFormatted)
-    .map((node, index) => ({ ...node, rank: index + 2 }));
-
-  const peerSet = new Set(peerNodes.map((node) => node.address));
-  const edges: TransferEdge[] = [];
-  for (const peer of selectedPeers) {
-    if (!peerSet.has(peer.address)) continue;
-
-    if (peer.incomingTxCount > 0) {
-      const incomingTokenAddress = dominantKey(peer.incomingTokens);
-      const incomingTokenSymbol = incomingTokenAddress
-        ? tokenProfiles.get(incomingTokenAddress)?.tokenSymbol || null
-        : null;
-      edges.push({
-        from: peer.address,
-        to: normalizedAddress,
-        volume: peer.incomingVolume,
-        txCount: peer.incomingTxCount,
-        relation: "funding",
-        tokenAddress: incomingTokenAddress || undefined,
-        tokenSymbol: incomingTokenSymbol,
-      });
-    }
-
-    if (peer.outgoingTxCount > 0) {
-      const outgoingTokenAddress = dominantKey(peer.outgoingTokens);
-      const outgoingTokenSymbol = outgoingTokenAddress
-        ? tokenProfiles.get(outgoingTokenAddress)?.tokenSymbol || null
-        : null;
-      edges.push({
-        from: normalizedAddress,
-        to: peer.address,
-        volume: peer.outgoingVolume,
-        txCount: peer.outgoingTxCount,
-        relation: "interaction",
-        tokenAddress: outgoingTokenAddress || undefined,
-        tokenSymbol: outgoingTokenSymbol,
-      });
-    }
-  }
-
   const fundingSources = topFundingSources.map((source) => {
-    const profile = allProfiles.get(source.address);
+    const profile = nodeProfiles.get(source.address);
     const classification = classifyEntity({
       alias: source.alias || profile?.alias || null,
       name: profile?.name || null,
@@ -300,9 +343,6 @@ export async function buildAddressGraphData(
       isToken: profile?.isErcToken,
     });
     const fundingTokenAddress = dominantKey(source.incomingTokens);
-    const fundingTokenSymbol = fundingTokenAddress
-      ? tokenProfiles.get(fundingTokenAddress)?.tokenSymbol || null
-      : null;
     return {
       address: source.address,
       alias: source.alias || profile?.alias || null,
@@ -310,11 +350,26 @@ export async function buildAddressGraphData(
       entityLabel: classification.label,
       volume: source.incomingVolume,
       txCount: source.incomingTxCount,
-      tokenSymbol: fundingTokenSymbol,
+      tokenSymbol: fundingTokenAddress
+        ? tokenProfiles.get(fundingTokenAddress)?.tokenSymbol || null
+        : null,
     };
   });
 
-  const nodes = [focusNode, ...peerNodes];
+  const tokenLegend = Array.from(tokenVolumeMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([tokenAddress]) => {
+      const tokenSymbol = tokenProfiles.get(tokenAddress)?.tokenSymbol || `${tokenAddress.slice(0, 6)}...`;
+      return {
+        tokenAddress,
+        tokenSymbol,
+        color: getTokenColor(tokenAddress, tokenSymbol),
+      };
+    });
+
+  const totalIncomingVolume = fundingSources.reduce((sum, source) => sum + source.volume, 0);
+  const totalIncomingTxCount = fundingSources.reduce((sum, source) => sum + source.txCount, 0);
 
   const graphData: GraphData = {
     mode: "address",
@@ -333,7 +388,13 @@ export async function buildAddressGraphData(
       edgesCount: edges.length,
       fetchedAt: new Date().toISOString(),
       entityCounts: countEntityTypes(nodes),
-      note: "Connections are inferred from recent transfer activity for the entered address.",
+      note: "Connections are inferred from recursive transfer crawling around the entered address.",
+      exploration: {
+        depth,
+        processedAddresses: processed.size,
+        maxTransfersPerAddress,
+      },
+      tokenLegend,
     },
     funding: {
       totalIncomingTxCount,

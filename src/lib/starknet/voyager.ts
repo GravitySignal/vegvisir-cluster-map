@@ -174,7 +174,8 @@ export async function fetchAddressProfiles(addresses: string[]): Promise<Map<str
 
 export async function fetchAddressTransfers(
   address: string,
-  maxPages: number = 8
+  maxPages: number = 8,
+  maxTransfers: number = 400
 ): Promise<AddressTransfer[]> {
   const normalizedAddress = normalizeAddress(address);
   const transfers: AddressTransfer[] = [];
@@ -208,6 +209,10 @@ export async function fetchAddressTransfers(
         fromAlias: item.fromAlias || null,
         toAlias: item.toAlias || null,
       });
+
+      if (transfers.length >= maxTransfers) {
+        return transfers;
+      }
     }
 
     if (data.items.length < 50 || (data.lastPage !== null && page >= data.lastPage)) break;
