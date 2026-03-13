@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Starknet Bubble Map",
-  description: "Visualize token holder distribution on Starknet",
+  title: "Vegvisir Cluster Map",
+  description:
+    "Investigate Starknet address clusters, funding paths, and token flows with interactive bubble maps.",
 };
 
 export default function RootLayout({
